@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Client</title>
+</head>
+
+<body>
+    <h1>WebSocket Client</h1>
+    <div>
+        <label for="ws-url">WebSocket URL:</label>
+        <input type="text" id="ws-url" placeholder="wss://example.com/socket" />
+        <button id="connect-btn">Connect</button>
+        <button id="disconnect-btn" disabled>Disconnect</button>
+    </div>
+    <div>
+        <label for="message">Message:</label>
+        <input type="text" id="message" placeholder="Enter your message here" />
+        <button id="send-btn" disabled>Send</button>
+    </div>
+    <div id="log" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: auto;">
+        <p><strong>Log:</strong></p>
+    </div>
+
+    <script>
+        let websocket;
+
+        const log = (message) => {
+            const logDiv = document.getElementById('log');
+            const p = document.createElement('p');
+            p.textContent = message;
+            logDiv.appendChild(p);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        };
+
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            const url = document.getElementById('ws-url').value;
+            if (!url) {
+                log('Please enter a WebSocket URL.');
+                return;
+            }
+
+            websocket = new WebSocket(url);
+
+            websocket.onopen = () => {
+                log('Connected to ' + url);
+                document.getElementById('send-btn').disabled = false;
+                document.getElementById('disconnect-btn').disabled = false;
+                document.getElementById('connect-btn').disabled = true;
+            };
+
+            websocket.onmessage = (event) => {
+                log('Received: ' + event.data);
+            };
+
+            websocket.onclose = () => {
+                log('Disconnected');
+                document.getElementById('send-btn').disabled = true;
+                document.getElementById('disconnect-btn').disabled = true;
+                document.getElementById('connect-btn').disabled = false;
+            };
+
+            websocket.onerror = (error) => {
+                log('Error: ' + error);
+            };
+        });
+
+        document.getElementById('disconnect-btn').addEventListener('click', () => {
+            if (websocket) {
+                websocket.close();
+            }
+        });
+
+        document.getElementById('send-btn').addEventListener('click', () => {
+            const message = document.getElementById('message').value;
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(message);
+                log('Sent: ' + message);
+            } else {
+                log('WebSocket is not open.');
+            }
+        });
+    </script>
+</body>
+
+</html>
