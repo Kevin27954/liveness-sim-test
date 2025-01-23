@@ -27,6 +27,24 @@ func main() {
 		http.HandleFunc("/"+nodeList[i].name, nodeList[1].Start)
 	}
 
+	fmt.Println("I ran here")
+
+	db := Init("test")
+	// res, err := db.conn.Exec("CREATE TABLE message (id INTEGER PRIMARY KEY, message TEXT);")
+	// if err != nil {
+	// 	log.Fatal("Err exec:", err)
+	// }
+	res, err := db.conn.Exec("INSERT INTO message (message) VALUES ('This is a test message 2')")
+	row := db.conn.QueryRow("SELECT * FROM message")
+
+	var message string
+	var id int
+	row.Scan(&id, &message)
+
+	fmt.Println("Message:", message)
+
+	log.Fatal("Res:", res)
+
 	// Lists all the nodes currently on
 	http.HandleFunc("/nodes", func(w http.ResponseWriter, r *http.Request) {
 		nodes := ""
@@ -36,7 +54,7 @@ func main() {
 		fmt.Fprintf(w, "%s", nodes)
 	})
 
-	err := http.ListenAndServe(addr, nil)
+	err = http.ListenAndServe(addr, nil)
 	if err != nil {
 		log.Fatal("Unable to start server: ", err)
 	}
