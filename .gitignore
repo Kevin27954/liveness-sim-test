@@ -1,2 +1,7 @@
 db/
 *.db
+
+
+# Added by cargo
+
+/target
