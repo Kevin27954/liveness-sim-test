@@ -4,32 +4,50 @@ import (
 	// "fmt"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
+
+	// "time"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
 	"github.com/Kevin27954/liveness-sim-test/cmd/node"
 	"github.com/Kevin27954/liveness-sim-test/db"
 )
 
-func createNode(num int) node.Node {
+func createNode(num int, connList string) node.Node {
 	name := "node" + strconv.Itoa(num)
-	db := db.Init(name)
+	sql_db := db.Init(name)
 
-	return node.Node{Name: name, Conn: nil, Db: db}
+	return node.Node{Name: name, Conn: nil, DB: sql_db, Status: 0, Hub: node.Hub{ConnStr: connList}}
 }
 
 func main() {
+	log.SetOutput(os.Stdout)
+	rand.New(rand.NewSource(69))
+
 	args := os.Args[1:]
 
 	addr := args[0]
-	nodeNum, err := strconv.Atoi(args[1])
-	assert.NoError(err, "Args wasn't a number")
 
-	serverNode := createNode(nodeNum)
+	var connList string
+	if len(args) > 1 {
+		connList = args[1]
+	}
+
+	addrAsInt, err := strconv.Atoi(addr)
+	assert.NoError(err, "Unable to covert to int")
+	serverNode := createNode(addrAsInt%8000, connList)
+
+	go func() {
+		time.Sleep(10 * time.Second)
+		serverNode.Hub.Run()
+	}()
 
 	http.HandleFunc("/ws", serverNode.Start)
+	http.HandleFunc("/internal", serverNode.Internal)
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
 		messages, err := serverNode.GetMessages()
 		if err != nil {
@@ -41,6 +59,12 @@ func main() {
 	})
 
 	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Name, addr)
+
+	// go func() {
+	// 	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
+	// 	serverNode.Hub.Run()
+	// }()
+
 	err = http.ListenAndServe("localhost:"+addr, nil)
 	assert.NoError(err, "Unable to start server")
 }
