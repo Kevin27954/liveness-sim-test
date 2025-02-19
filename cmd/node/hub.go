@@ -12,7 +12,7 @@ import (
 
 const (
 	WRITEWAIT = 10 * time.Second
-	PONGTIME  = 30 * time.Second
+	PONGTIME  = 60 * time.Second
 	PINGTIME  = (PONGTIME * 9) / 10
 )
 
@@ -37,8 +37,9 @@ func (h *Hub) ConnectConns() {
 		log.Printf("Connected to %s", connStr)
 
 		hub.connList = append(hub.connList, conn)
+
 		// Starts Pinging
-		h.Ping(conn)
+		// h.Ping(conn)
 	}
 }
 
@@ -95,10 +96,28 @@ func (h *Hub) Pong(conn *websocket.Conn) {
 	}
 }
 
-func (h *Hub) Run() {
+func (h *Hub) Run(addr int) {
 	if len(h.ConnStr) > 0 {
 		h.ConnectConns()
 	}
+
+	interval := (addr % 8000) * 5
+
+	newTicker := h.newTimerEveryMin(interval)
+	defer newTicker.Stop()
+
+	select {
+
+	case <-newTicker.C:
+		// Check if is ledaer
+		// If is leader send ping
+		// else init election
+		log.Println(time.Now())
+
+	}
+
+	// Set up time.
+	h.InitiateElection()
 }
 
 func (h *Hub) SendMessage(message string) {
@@ -114,4 +133,13 @@ func (h *Hub) AddConn(conn *websocket.Conn) {
 	h.Lock.Lock()
 	h.connList = append(h.connList, conn)
 	h.Lock.Unlock()
+}
+
+func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
+	currTime := time.Now()
+	timeLeft := time.Duration(((60-currTime.Second())+sec)%60) * time.Second
+
+	time.Sleep(timeLeft)
+
+	return time.NewTicker(time.Minute)
 }

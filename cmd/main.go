@@ -43,7 +43,7 @@ func main() {
 
 	go func() {
 		time.Sleep(10 * time.Second)
-		serverNode.Hub.Run()
+		serverNode.Hub.Run(addrAsInt)
 	}()
 
 	http.HandleFunc("/ws", serverNode.Start)
