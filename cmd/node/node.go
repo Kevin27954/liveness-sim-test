@@ -58,7 +58,7 @@ func (n *Node) Internal(w http.ResponseWriter, r *http.Request) {
 	assert.NoError(err, "Unable to upgrade internal nodes socket conn")
 
 	n.Hub.AddConn(conn)
-	n.Hub.Pong(conn)
+	// n.Hub.Pong(conn)
 }
 
 // There will no writebacks for now. I only want to read.

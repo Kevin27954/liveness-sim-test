@@ -60,11 +60,6 @@ func main() {
 
 	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Name, addr)
 
-	// go func() {
-	// 	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
-	// 	serverNode.Hub.Run()
-	// }()
-
 	err = http.ListenAndServe("localhost:"+addr, nil)
 	assert.NoError(err, "Unable to start server")
 }
