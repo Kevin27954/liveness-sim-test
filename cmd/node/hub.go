@@ -11,16 +11,17 @@ import (
 )
 
 const (
-	WRITEWAIT = 10 * time.Second
+	WRITEWAIT = 30 * time.Second
 	PONGTIME  = 60 * time.Second
 	PINGTIME  = (PONGTIME * 9) / 10
 )
 
 type Hub struct {
-	ConnStr  string
-	connList []*websocket.Conn
-	Lock     sync.Mutex
-	IsLeader bool
+	ConnStr   string
+	connList  []*websocket.Conn
+	Lock      sync.Mutex
+	IsLeader  bool
+	hasLeader bool
 }
 
 func (h *Hub) ConnectConns() {
@@ -40,12 +41,10 @@ func (h *Hub) ConnectConns() {
 }
 
 func (h *Hub) Ping() {
-	wg := sync.WaitGroup{}
 
 	for _, conn := range h.connList {
-		go func() {
-			wg.Add(1)
-			defer wg.Done()
+		go func(conn *websocket.Conn) {
+
 			conn.SetPongHandler(func(appData string) error {
 				log.Println("PONG")
 				return nil
@@ -56,19 +55,11 @@ func (h *Hub) Ping() {
 			if err != nil {
 				log.Println("Ping test", err)
 			}
-			// Reads PONG Message
-			_, _, err = conn.ReadMessage()
-			if err != nil {
-				log.Println("Pong: ", err)
-			}
 
-			println("Goo goo Gag aga")
-
-		}()
+		}(conn)
 
 	}
 
-	wg.Wait()
 }
 
 func (h *Hub) Run(addr int) {
@@ -90,14 +81,10 @@ func (h *Hub) Run(addr int) {
 				// Send a rquest to all conn, if conn is up and recieve a single no then we sa it is reject
 				// if all conn is yes and no err, then we proceed with request.
 
-				log.Println("I am leader:", h.IsLeader)
-
 				if h.IsLeader {
 					// Leader Ping
-					log.Println("I want to ping")
-
 					h.Ping()
-
+				} else if h.hasLeader {
 				} else {
 					h.InitiateElection()
 				}
@@ -113,22 +100,30 @@ func (h *Hub) Run(addr int) {
 	}
 }
 
-func (h *Hub) SendMessage(message string) {
-}
-
 func (h *Hub) RecieveMessage(consensus chan int) {
-	for _, conn := range h.connList {
-		go func() {
 
-			// conn.SetReadDeadline(time.Now().Add(PONGTIME))
+	for _, conn := range h.connList {
+		go func(conn *websocket.Conn) {
+
 			conn.SetPingHandler(func(appData string) error {
-				// conn.SetReadDeadline(time.Now().Add(PONGTIME))
-				conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
+				conn.SetReadDeadline(time.Now().Add(PONGTIME))
+				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+				err := conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
+				if err != nil {
+					log.Println("Ping:", err)
+				}
+
 				log.Println("PING")
 				return nil
 			})
 
 			for {
+
+				// The idea is that we don't know WHEN we might receive a message. So we just want to wait and be on
+				// the lookout for any potential messages that might come.
+				// Removes the deadline
+				conn.SetReadDeadline(time.Time{})
+
 				_, msg, err := conn.ReadMessage()
 				if err != nil {
 					log.Println("Err: ", err)
@@ -148,10 +143,11 @@ func (h *Hub) RecieveMessage(consensus chan int) {
 					h.IsLeader = true
 				} else {
 					log.Println("I got msg func:", string(msg))
+					h.hasLeader = true
 				}
 			}
 
-		}()
+		}(conn)
 	}
 }
 
@@ -166,6 +162,9 @@ func (h *Hub) InitiateElection() {
 		}
 	}
 
+}
+
+func (h *Hub) SendMessage(message string) {
 }
 
 func (h *Hub) AddConn(conn *websocket.Conn) {

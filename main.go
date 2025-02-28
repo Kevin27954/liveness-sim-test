@@ -56,6 +56,7 @@ func main() {
 
 			for scanner.Scan() {
 				log.Printf("\033[%dm%s\033[0m", color+31, scanner.Text())
+
 			}
 		}()
 	}
