@@ -12,8 +12,9 @@ import (
 
 const (
 	WRITEWAIT = 30 * time.Second
-	PONGTIME  = 60 * time.Second
+	PONGTIME  = 70 * time.Second
 	PINGTIME  = (PONGTIME * 9) / 10
+	ONE_MIN   = 60
 )
 
 type Hub struct {
@@ -175,7 +176,7 @@ func (h *Hub) AddConn(conn *websocket.Conn) {
 
 func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 	currTime := time.Now()
-	timeLeft := time.Duration(((60-currTime.Second())+sec)%60) * time.Second
+	timeLeft := time.Duration(((ONE_MIN-currTime.Second())+sec)%ONE_MIN) * time.Second
 
 	time.Sleep(timeLeft)
 

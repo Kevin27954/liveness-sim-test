@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -23,6 +24,10 @@ func main() {
 	numNodes := 2
 	var wg sync.WaitGroup
 
+	logFile, err := os.Create("logs.md")
+	assert.NoError(err, "Error creating log file")
+	var mutex sync.Mutex
+
 	for i := 0; i < numNodes; i++ {
 		var urlList []string
 		for j := i + 1; j < numNodes; j++ {
@@ -35,7 +40,7 @@ func main() {
 
 		wg.Add(1)
 
-		go func() {
+		go func(l *sync.Mutex) {
 			defer wg.Done()
 
 			color := i
@@ -56,9 +61,11 @@ func main() {
 
 			for scanner.Scan() {
 				log.Printf("\033[%dm%s\033[0m", color+31, scanner.Text())
-
+				l.Lock()
+				logFile.Write([]byte(scanner.Text() + "\n"))
+				l.Unlock()
 			}
-		}()
+		}(&mutex)
 	}
 
 	wg.Wait()
