@@ -22,7 +22,6 @@ const (
 var upgrader = websocket.Upgrader{}
 
 type Node struct {
-	Name   string
 	Conn   *websocket.Conn
 	DB     db.DB
 	Status int // 1 = Leader, 0 = member

@@ -18,6 +18,7 @@ const (
 )
 
 type Hub struct {
+	Name      string
 	ConnStr   string
 	connList  []*websocket.Conn
 	Lock      sync.Mutex
@@ -28,7 +29,7 @@ type Hub struct {
 func (h *Hub) ConnectConns() {
 	assert.Assert(len(h.ConnStr) > 0, len(h.ConnStr), 1, "Expected length greater than 0")
 
-	log.Println("Connecting to other nodes")
+	log.Println(h.Name, "Connecting to other nodes")
 
 	conns := strings.Split(h.ConnStr, ",")
 	for _, connStr := range conns {
@@ -47,14 +48,14 @@ func (h *Hub) Ping() {
 		go func(conn *websocket.Conn) {
 
 			conn.SetPongHandler(func(appData string) error {
-				log.Println("PONG")
+				log.Println(h.Name, "PONG")
 				return nil
 			})
 
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			err := conn.WriteMessage(websocket.PingMessage, []byte("PING"))
 			if err != nil {
-				log.Println("Ping test", err)
+				log.Println(h.Name, "Ping test", err)
 			}
 
 		}(conn)
@@ -81,6 +82,8 @@ func (h *Hub) Run(addr int) {
 			case <-newTicker.C:
 				// Send a rquest to all conn, if conn is up and recieve a single no then we sa it is reject
 				// if all conn is yes and no err, then we proceed with request.
+
+				//  log.Println(h.Name, "I am leader: ", h.IsLeader)
 
 				if h.IsLeader {
 					// Leader Ping
@@ -111,10 +114,10 @@ func (h *Hub) RecieveMessage(consensus chan int) {
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 				err := conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
 				if err != nil {
-					log.Println("Ping:", err)
+					log.Println(h.Name, "Ping:", err)
 				}
 
-				log.Println("PING")
+				log.Println(h.Name, "PING")
 				return nil
 			})
 
@@ -127,7 +130,7 @@ func (h *Hub) RecieveMessage(consensus chan int) {
 
 				_, msg, err := conn.ReadMessage()
 				if err != nil {
-					log.Println("Err: ", err)
+					log.Println(h.Name, "Err: ", err)
 				}
 
 				if string(msg) == "0" {
@@ -137,14 +140,20 @@ func (h *Hub) RecieveMessage(consensus chan int) {
 						conn.WriteMessage(websocket.TextMessage, []byte("2"))
 					} else {
 						conn.WriteMessage(websocket.TextMessage, []byte("1"))
+						h.Lock.Lock()
+						h.hasLeader = true
+						h.Lock.Unlock()
 					}
 
 				} else if string(msg) == "1" {
-					log.Println("I became leader")
-					h.IsLeader = true
+					if !h.hasLeader {
+						h.Lock.Lock()
+						h.IsLeader = true
+						h.Lock.Unlock()
+						log.Println(h.Name, "I became leader")
+					}
 				} else {
-					log.Println("I got msg func:", string(msg))
-					h.hasLeader = true
+					log.Println(h.Name, "I got msg func:", string(msg))
 				}
 			}
 
@@ -153,13 +162,13 @@ func (h *Hub) RecieveMessage(consensus chan int) {
 }
 
 func (h *Hub) InitiateElection() {
-	log.Println("Election started")
+	log.Println(h.Name, "Election started")
 
 	for _, conn := range h.connList {
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 		err := conn.WriteMessage(websocket.TextMessage, []byte("0"))
 		if err != nil {
-			log.Println("Error", err)
+			log.Println(h.Name, "Error", err)
 		}
 	}
 
@@ -188,14 +197,14 @@ func (h *Hub) Pong(conn *websocket.Conn) {
 	conn.SetPingHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(PONGTIME))
 		conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
-		log.Println("PING")
+		log.Println(h.Name, "PING")
 		return nil
 	})
 
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
-			log.Println("Pong: ", err)
+			log.Println(h.Name, "Pong: ", err)
 			break
 		}
 	}

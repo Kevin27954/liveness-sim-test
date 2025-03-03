@@ -21,7 +21,7 @@ func main() {
 	startingPort := 8000
 	endpoint := "internal"
 
-	numNodes := 2
+	numNodes := 4
 	var wg sync.WaitGroup
 
 	logFile, err := os.Create("logs.md")

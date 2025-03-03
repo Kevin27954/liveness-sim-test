@@ -21,7 +21,7 @@ func createNode(num int, connList string) node.Node {
 	name := "node" + strconv.Itoa(num)
 	sql_db := db.Init(name)
 
-	return node.Node{Name: name, Conn: nil, DB: sql_db, Status: 0, Hub: node.Hub{ConnStr: connList}}
+	return node.Node{Conn: nil, DB: sql_db, Status: 0, Hub: node.Hub{ConnStr: connList, Name: name}}
 }
 
 func main() {
