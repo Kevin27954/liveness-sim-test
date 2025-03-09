@@ -38,15 +38,13 @@ func (h *Hub) ConnectConns() {
 
 		log.Printf("Connected to %s", connStr)
 
-		h.connList = append(h.connList, conn)
+		h.AddConn(conn)
 	}
 }
 
 func (h *Hub) Ping() {
-
 	for _, conn := range h.connList {
 		go func(conn *websocket.Conn) {
-
 			conn.SetPongHandler(func(appData string) error {
 				log.Println(h.Name, "PONG")
 				return nil
@@ -59,9 +57,7 @@ func (h *Hub) Ping() {
 			}
 
 		}(conn)
-
 	}
-
 }
 
 func (h *Hub) Run(addr int) {
@@ -74,91 +70,96 @@ func (h *Hub) Run(addr int) {
 	newTicker := h.newTimerEveryMin(interval)
 	defer newTicker.Stop()
 
-	consensus := make(chan int)
-
-	go func() {
-		for {
-			select {
-			case <-newTicker.C:
-				// Send a rquest to all conn, if conn is up and recieve a single no then we sa it is reject
-				// if all conn is yes and no err, then we proceed with request.
-
-				//  log.Println(h.Name, "I am leader: ", h.IsLeader)
-
-				if h.IsLeader {
-					// Leader Ping
-					h.Ping()
-				} else if h.hasLeader {
-				} else {
-					h.InitiateElection()
-				}
-
-			}
-		}
-	}()
-
-	h.RecieveMessage(consensus)
-
 	for {
-		// Here to keep the functions running.
+		select {
+		case <-newTicker.C:
+			// Send a rquest to all conn, if conn is up and recieve a single no then we sa it is reject
+			// if all conn is yes and no err, then we proceed with request.
+
+			log.Println(h.Name, "I am leader: ", h.IsLeader)
+
+			if h.IsLeader {
+				// Leader Ping
+				h.Ping()
+			} else if h.hasLeader {
+			} else {
+				h.InitiateElection()
+			}
+
+		}
 	}
+
+	// for _, conn := range h.connList {
+	// 	go h.RecieveMessage(conn)
+	// }
+
+	// for {
+	// 	// Here to keep the functions running.
+	// }
 }
 
-func (h *Hub) RecieveMessage(consensus chan int) {
+func (h *Hub) RecieveMessage(conn *websocket.Conn) {
+	log.Println("Listening to Messages")
 
-	for _, conn := range h.connList {
-		go func(conn *websocket.Conn) {
+	conn.SetPingHandler(func(appData string) error {
+		conn.SetReadDeadline(time.Now().Add(PONGTIME))
+		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+		err := conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
+		if err != nil {
+			log.Println(h.Name, "Ping Err:", err)
 
-			conn.SetPingHandler(func(appData string) error {
-				conn.SetReadDeadline(time.Now().Add(PONGTIME))
-				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-				err := conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
-				if err != nil {
-					log.Println(h.Name, "Ping:", err)
-				}
+		}
 
-				log.Println(h.Name, "PING")
-				return nil
-			})
+		log.Println(h.Name, "PING")
+		return nil
+	})
 
-			for {
+	for {
+		// The idea is that we don't know WHEN we might receive a message. So we just want to wait and be on
+		// the lookout for any potential messages that might come.
+		// Removes the deadline
 
-				// The idea is that we don't know WHEN we might receive a message. So we just want to wait and be on
-				// the lookout for any potential messages that might come.
-				// Removes the deadline
-				conn.SetReadDeadline(time.Time{})
+		// This does not work if it s a Ping Message, as if there is a PingHandler, it won't be counted towards
+		// the message and thus all readmessage is not ran. E.g. this line below does not work as conn.RecieveMessage()
+		// will never actually run unless it is a non Ping message.
+		// ```err := conn.SetReadDeadline(time.Now().Add(PONGTIME))```
 
-				_, msg, err := conn.ReadMessage()
-				if err != nil {
-					log.Println(h.Name, "Err: ", err)
-				}
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(h.Name, "Read Err: ", err)
 
-				if string(msg) == "0" {
+			// Reset the Status
+			h.Lock.Lock()
+			h.removeConn(conn)
+			h.hasLeader = false
+			h.Lock.Unlock()
+			return
+		}
 
-					conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-					if h.IsLeader {
-						conn.WriteMessage(websocket.TextMessage, []byte("2"))
-					} else {
-						conn.WriteMessage(websocket.TextMessage, []byte("1"))
-						h.Lock.Lock()
-						h.hasLeader = true
-						h.Lock.Unlock()
-					}
-
-				} else if string(msg) == "1" {
-					if !h.hasLeader {
-						h.Lock.Lock()
-						h.IsLeader = true
-						h.Lock.Unlock()
-						log.Println(h.Name, "I became leader")
-					}
-				} else {
-					log.Println(h.Name, "I got msg func:", string(msg))
-				}
+		if string(msg) == ELECTION {
+			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			if h.IsLeader || h.hasLeader {
+				conn.WriteMessage(websocket.TextMessage, []byte("0"))
+			} else {
+				conn.WriteMessage(websocket.TextMessage, []byte("1"))
+				h.Lock.Lock()
+				h.hasLeader = true
+				h.Lock.Unlock()
 			}
 
-		}(conn)
+		} else if string(msg) == VOTE_YES {
+			if !h.hasLeader {
+				h.Lock.Lock()
+				h.IsLeader = true
+				h.Lock.Unlock()
+				log.Println(h.Name, "I became leader")
+			}
+
+		} else {
+			log.Println(h.Name, "I got msg func:", string(msg))
+		}
 	}
+
 }
 
 func (h *Hub) InitiateElection() {
@@ -166,7 +167,7 @@ func (h *Hub) InitiateElection() {
 
 	for _, conn := range h.connList {
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := conn.WriteMessage(websocket.TextMessage, []byte("0"))
+		err := conn.WriteMessage(websocket.TextMessage, []byte("10"))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
 		}
@@ -177,10 +178,30 @@ func (h *Hub) InitiateElection() {
 func (h *Hub) SendMessage(message string) {
 }
 
+func (h *Hub) removeConn(conn *websocket.Conn) {
+	var removeIdx = -1
+	for i, c := range h.connList {
+		if c == conn {
+			removeIdx = i
+			break
+		}
+	}
+
+	if removeIdx == -1 {
+		return
+	}
+
+	assert.Assert(removeIdx != -1, removeIdx, 0, "Remove index should not be -1")
+
+	h.connList[removeIdx] = h.connList[len(h.connList)-1]
+	h.connList = h.connList[:len(h.connList)-1]
+}
+
 func (h *Hub) AddConn(conn *websocket.Conn) {
 	h.Lock.Lock()
 	h.connList = append(h.connList, conn)
 	h.Lock.Unlock()
+	go h.RecieveMessage(conn)
 }
 
 func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
@@ -192,20 +213,20 @@ func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 	return time.NewTicker(time.Minute)
 }
 
-func (h *Hub) Pong(conn *websocket.Conn) {
-	conn.SetReadDeadline(time.Now().Add(PONGTIME))
-	conn.SetPingHandler(func(appData string) error {
-		conn.SetReadDeadline(time.Now().Add(PONGTIME))
-		conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
-		log.Println(h.Name, "PING")
-		return nil
-	})
-
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(h.Name, "Pong: ", err)
-			break
-		}
-	}
-}
+// func (h *Hub) Pong(conn *websocket.Conn) {
+// 	conn.SetReadDeadline(time.Now().Add(PONGTIME))
+// 	conn.SetPingHandler(func(appData string) error {
+// 		conn.SetReadDeadline(time.Now().Add(PONGTIME))
+// 		conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
+// 		log.Println(h.Name, "PING")
+// 		return nil
+// 	})
+//
+// 	for {
+// 		_, _, err := conn.ReadMessage()
+// 		if err != nil {
+// 			log.Println(h.Name, "Pong: ", err)
+// 			break
+// 		}
+// 	}
+// }

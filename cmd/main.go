@@ -58,7 +58,7 @@ func main() {
 		fmt.Fprintf(w, messages)
 	})
 
-	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Name, addr)
+	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Hub.Name, addr)
 
 	err = http.ListenAndServe("localhost:"+addr, nil)
 	assert.NoError(err, "Unable to start server")
