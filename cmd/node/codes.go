@@ -6,5 +6,7 @@ const (
 	VOTE_NO  = "0"
 	VOTE_YES = "1"
 
+	AM_LEADER = "5"
+
 	ELECTION = "10"
 )

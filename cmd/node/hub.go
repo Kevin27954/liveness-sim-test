@@ -23,7 +23,7 @@ type Hub struct {
 	connList  []*websocket.Conn
 	Lock      sync.Mutex
 	IsLeader  bool
-	hasLeader bool
+	hasLeader *websocket.Conn
 }
 
 func (h *Hub) ConnectConns() {
@@ -81,7 +81,7 @@ func (h *Hub) Run(addr int) {
 			if h.IsLeader {
 				// Leader Ping
 				h.Ping()
-			} else if h.hasLeader {
+			} else if h.hasLeader != nil {
 			} else {
 				h.InitiateElection()
 			}
@@ -131,29 +131,35 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			// Reset the Status
 			h.Lock.Lock()
 			h.removeConn(conn)
-			h.hasLeader = false
 			h.Lock.Unlock()
 			return
 		}
 
 		if string(msg) == ELECTION {
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			if h.IsLeader || h.hasLeader {
-				conn.WriteMessage(websocket.TextMessage, []byte("0"))
+			if h.IsLeader {
+				conn.WriteMessage(websocket.TextMessage, []byte(AM_LEADER))
+			} else if h.hasLeader != nil {
+				conn.WriteMessage(websocket.TextMessage, []byte(VOTE_NO))
 			} else {
-				conn.WriteMessage(websocket.TextMessage, []byte("1"))
+				conn.WriteMessage(websocket.TextMessage, []byte(VOTE_YES))
 				h.Lock.Lock()
-				h.hasLeader = true
+				h.hasLeader = conn
 				h.Lock.Unlock()
 			}
 
 		} else if string(msg) == VOTE_YES {
-			if !h.hasLeader {
+			if h.hasLeader == nil {
 				h.Lock.Lock()
 				h.IsLeader = true
 				h.Lock.Unlock()
 				log.Println(h.Name, "I became leader")
 			}
+
+		} else if string(msg) == AM_LEADER {
+			h.Lock.Lock()
+			h.hasLeader = conn
+			h.Lock.Unlock()
 
 		} else {
 			log.Println(h.Name, "I got msg func:", string(msg))
@@ -189,6 +195,10 @@ func (h *Hub) removeConn(conn *websocket.Conn) {
 
 	if removeIdx == -1 {
 		return
+	}
+
+	if conn == h.hasLeader {
+		h.hasLeader = nil
 	}
 
 	assert.Assert(removeIdx != -1, removeIdx, 0, "Remove index should not be -1")
