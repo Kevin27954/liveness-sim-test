@@ -42,24 +42,6 @@ func (h *Hub) ConnectConns() {
 	}
 }
 
-func (h *Hub) Ping() {
-	for _, conn := range h.connList {
-		go func(conn *websocket.Conn) {
-			conn.SetPongHandler(func(appData string) error {
-				log.Println(h.Name, "PONG")
-				return nil
-			})
-
-			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			err := conn.WriteMessage(websocket.PingMessage, []byte("PING"))
-			if err != nil {
-				log.Println(h.Name, "Ping test", err)
-			}
-
-		}(conn)
-	}
-}
-
 func (h *Hub) Run(addr int) {
 	if len(h.ConnStr) > 0 {
 		h.ConnectConns()
@@ -77,29 +59,21 @@ func (h *Hub) Run(addr int) {
 			// if all conn is yes and no err, then we proceed with request.
 
 			log.Println(h.Name, "I am leader: ", h.IsLeader)
-
 			if h.IsLeader {
 				// Leader Ping
 				h.Ping()
 			} else if h.hasLeader != nil {
+				// Idk what yet
 			} else {
 				h.InitiateElection()
 			}
 
 		}
 	}
-
-	// for _, conn := range h.connList {
-	// 	go h.RecieveMessage(conn)
-	// }
-
-	// for {
-	// 	// Here to keep the functions running.
-	// }
 }
 
 func (h *Hub) RecieveMessage(conn *websocket.Conn) {
-	log.Println("Listening to Messages")
+	log.Println("Listening For Messages")
 
 	conn.SetPingHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(PONGTIME))
@@ -161,6 +135,33 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			h.hasLeader = conn
 			h.Lock.Unlock()
 
+		} else if string(msg) == NEW_MSG_ADD {
+			// If is leader, send it to other conns
+			// if is non leader, send it to the leader
+
+			// Respond with vote yes or vote no?
+
+			// Pretend this is leader sending:
+			// leader sends new_msg_aadd request to all nodes
+			// alll nodes sends back a yes or no
+			// if yes then leader confirms and tells others to init request
+			// else leaders tells others to say no
+			// sends response message back to the node/user
+
+			// To do this, I'm pretty sure ou need to store
+			// What it is that is being voted for right now. Thus far there is only one.
+			// But now there ist two, so there isa  need to have a way of what is being voted on.
+			// Wellactually there is still only one, since election is done to itself rather than
+			// being shred with other nodes.
+
+			// we then also need to know what it is we are adding to the db.
+
+			// Pretend this is node sending to leader:
+			// Gets msg request
+			// sends to the leader
+			// proceed with above scenario
+			// recieve result of consensus
+			// send backs error message
 		} else {
 			log.Println(h.Name, "I got msg func:", string(msg))
 		}
@@ -168,20 +169,37 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 }
 
+func (h *Hub) StoreMessage() {
+	// Logic should be encompassed here such that ti can be called
+	// when someone adds a message.
+
+	if h.IsLeader {
+		// sends conn to everyone
+
+		for _, conn := range h.connList {
+			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			err := conn.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
+			if err != nil {
+				log.Println(h.Name, "Error", err)
+			}
+		}
+
+	} else {
+		//sends conn to leader
+	}
+}
+
 func (h *Hub) InitiateElection() {
 	log.Println(h.Name, "Election started")
 
 	for _, conn := range h.connList {
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := conn.WriteMessage(websocket.TextMessage, []byte("10"))
+		err := conn.WriteMessage(websocket.TextMessage, []byte(ELECTION))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
 		}
 	}
 
-}
-
-func (h *Hub) SendMessage(message string) {
 }
 
 func (h *Hub) removeConn(conn *websocket.Conn) {
@@ -214,6 +232,24 @@ func (h *Hub) AddConn(conn *websocket.Conn) {
 	go h.RecieveMessage(conn)
 }
 
+func (h *Hub) Ping() {
+	for _, conn := range h.connList {
+		go func(conn *websocket.Conn) {
+			conn.SetPongHandler(func(appData string) error {
+				log.Println(h.Name, "PONG")
+				return nil
+			})
+
+			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			err := conn.WriteMessage(websocket.PingMessage, []byte("PING"))
+			if err != nil {
+				log.Println(h.Name, "Ping test", err)
+			}
+
+		}(conn)
+	}
+}
+
 func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 	currTime := time.Now()
 	timeLeft := time.Duration(((ONE_MIN-currTime.Second())+sec)%ONE_MIN) * time.Second
@@ -222,21 +258,3 @@ func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 
 	return time.NewTicker(time.Minute)
 }
-
-// func (h *Hub) Pong(conn *websocket.Conn) {
-// 	conn.SetReadDeadline(time.Now().Add(PONGTIME))
-// 	conn.SetPingHandler(func(appData string) error {
-// 		conn.SetReadDeadline(time.Now().Add(PONGTIME))
-// 		conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
-// 		log.Println(h.Name, "PING")
-// 		return nil
-// 	})
-//
-// 	for {
-// 		_, _, err := conn.ReadMessage()
-// 		if err != nil {
-// 			log.Println(h.Name, "Pong: ", err)
-// 			break
-// 		}
-// 	}
-// }

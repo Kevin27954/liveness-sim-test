@@ -8,5 +8,8 @@ const (
 
 	AM_LEADER = "5"
 
+	NEW_MSG_ADD    = "20"
+	NEW_MSG_DELETE = "21"
+
 	ELECTION = "10"
 )
