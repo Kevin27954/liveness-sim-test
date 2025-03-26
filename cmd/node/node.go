@@ -4,10 +4,8 @@ import (
 	// "fmt"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
-	"github.com/Kevin27954/liveness-sim-test/db"
 	"github.com/gorilla/websocket"
 )
 
@@ -23,7 +21,6 @@ var upgrader = websocket.Upgrader{}
 
 type Node struct {
 	Conn   *websocket.Conn
-	DB     db.DB
 	Status int // 1 = Leader, 0 = member
 	Hub    Hub
 }
@@ -79,7 +76,8 @@ func (n *Node) recieveMessage() {
 
 		assert.Assert(len(message) <= 512, len(message), 512, "greater than 512 bytes")
 
-		n.DB.AddMessage(string(message))
+		n.Hub.StoreMessage()
+		// n.Hub.DB.AddMessage(string(message))
 
 		log.Printf("Recieved: %s", message)
 	}
@@ -88,7 +86,16 @@ func (n *Node) recieveMessage() {
 }
 
 func (n *Node) GetMessages() (string, error) {
-	messages, err := n.DB.GetMessages()
+	messages, err := n.Hub.DB.GetMessages()
+	if err != nil {
+		return "", err
+	}
 
-	return strings.Join(messages, "\n"), err
+	var allMessages string
+
+	for _, message := range messages {
+		allMessages += message.Msg + "\n"
+	}
+
+	return allMessages, nil
 }

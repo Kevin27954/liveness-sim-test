@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
+	"github.com/Kevin27954/liveness-sim-test/db"
 	"github.com/gorilla/websocket"
 )
 
@@ -15,15 +16,20 @@ const (
 	PONGTIME  = 70 * time.Second
 	PINGTIME  = (PONGTIME * 9) / 10
 	ONE_MIN   = 60
+
+	SYNC_TIME = 3 * time.Second
 )
 
 type Hub struct {
-	Name      string
-	ConnStr   string
-	connList  []*websocket.Conn
-	Lock      sync.Mutex
-	IsLeader  bool
-	hasLeader *websocket.Conn
+	Name    string
+	ConnStr string
+	DB      db.DB
+
+	connList         []*websocket.Conn
+	Lock             sync.Mutex
+	IsLeader         bool
+	hasLeader        *websocket.Conn
+	currentConsensus int
 }
 
 func (h *Hub) ConnectConns() {
@@ -78,13 +84,15 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 	conn.SetPingHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(PONGTIME))
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := conn.WriteMessage(websocket.PongMessage, []byte("PONG"))
+		// Get latest log info.
+		// Send the latest log over: time, operation, id?, msg, etc
+		log.Println(h.Name, "Should be request: ", appData)
+
+		err := conn.WriteMessage(websocket.PongMessage, []byte("Latest is at: XX:XX"))
 		if err != nil {
 			log.Println(h.Name, "Ping Err:", err)
-
 		}
 
-		log.Println(h.Name, "PING")
 		return nil
 	})
 
@@ -109,7 +117,55 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			return
 		}
 
-		if string(msg) == ELECTION {
+		switch string(msg) {
+		case CONSENSUS_YES:
+			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
+			h.Lock.Lock()
+			h.currentConsensus += 1
+			h.Lock.Unlock()
+
+			// Potential Scenario where you don't receive all the CONSENSUS
+			if h.currentConsensus == len(h.connList) {
+				// for _, conn := range h.connList {
+				// 	conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+				// 	// Current Operation at HEAD of Queue
+				// 	err := conn.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
+				// 	if err != nil {
+				// 		log.Println(h.Name, "Error", err)
+				// 	}
+				// }
+
+				h.Lock.Lock()
+				h.currentConsensus = 0
+				// Pop Current Operation from Queue
+
+				// Current Operation at HEAD of Queue
+				// The message also needs to be kept
+				// It will be added to nodes during the SYNC phase
+				h.DB.AddOperation(NEW_MSG_ADD, "")
+
+				h.Lock.Unlock()
+
+				// We need to implement the SYNC immediately. It can be an extension of Ping Pong perhaps?
+				// or like replacing the Ping and Pong that exists.
+			}
+
+		case CONSENSUS_NO:
+			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
+
+		case VOTE_NO:
+			// Nothing happens
+		case VOTE_YES:
+
+			if h.hasLeader == nil {
+				h.Lock.Lock()
+				h.IsLeader = true
+				h.Lock.Unlock()
+				log.Println(h.Name, "I became leader")
+			}
+
+		case ELECTION:
+
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			if h.IsLeader {
 				conn.WriteMessage(websocket.TextMessage, []byte(AM_LEADER))
@@ -122,24 +178,31 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				h.Lock.Unlock()
 			}
 
-		} else if string(msg) == VOTE_YES {
-			if h.hasLeader == nil {
-				h.Lock.Lock()
-				h.IsLeader = true
-				h.Lock.Unlock()
-				log.Println(h.Name, "I became leader")
-			}
+		case AM_LEADER:
 
-		} else if string(msg) == AM_LEADER {
 			h.Lock.Lock()
 			h.hasLeader = conn
 			h.Lock.Unlock()
 
-		} else if string(msg) == NEW_MSG_ADD {
+		case NEW_MSG_ADD:
 			// If is leader, send it to other conns
-			// if is non leader, send it to the leader
 
 			// Respond with vote yes or vote no?
+
+			if h.IsLeader {
+				// Sends to all other nodes.
+				h.StoreMessage()
+			} else {
+				// Check if I can store it or not
+				// if yes, send "consensus_agree"
+				// else, send "consensus_disagree"
+
+				// "consensus_agree" & "consensus_disagree" are going to be the
+				// general code for all consensus related. Each send is related to
+				// current consensus_topic in queue I believe.
+
+				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(CONSENSUS_YES))
+			}
 
 			// Pretend this is leader sending:
 			// leader sends new_msg_aadd request to all nodes
@@ -162,19 +225,20 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			// proceed with above scenario
 			// recieve result of consensus
 			// send backs error message
-		} else {
+		default:
 			log.Println(h.Name, "I got msg func:", string(msg))
 		}
-	}
 
+	}
 }
 
+// Can probably pass the code in the input params and able to deal with both
+// add msg and delete msg.
 func (h *Hub) StoreMessage() {
 	// Logic should be encompassed here such that ti can be called
 	// when someone adds a message.
 
 	if h.IsLeader {
-		// sends conn to everyone
 
 		for _, conn := range h.connList {
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
@@ -182,10 +246,17 @@ func (h *Hub) StoreMessage() {
 			if err != nil {
 				log.Println(h.Name, "Error", err)
 			}
+
+			// Probably store the thing in a queue?
+			// When they send msg back, we do stuff to it (e.g. remove from queue?).
 		}
 
 	} else {
 		//sends conn to leader
+		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
+		if err != nil {
+			log.Println(h.Name, "Error", err)
+		}
 	}
 }
 
@@ -232,16 +303,28 @@ func (h *Hub) AddConn(conn *websocket.Conn) {
 	go h.RecieveMessage(conn)
 }
 
+// It should be rebranded to SYNC
 func (h *Hub) Ping() {
 	for _, conn := range h.connList {
 		go func(conn *websocket.Conn) {
+
 			conn.SetPongHandler(func(appData string) error {
-				log.Println(h.Name, "PONG")
+				conn.SetReadDeadline(time.Now().Add(PONGTIME))
+				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+				// Get the missing logs starting fro their latest logs.
+				log.Println(h.Name, "Should be telling me when(everything about the log): ", appData)
+				// get logs (will be in string format.
+
+				err := conn.WriteMessage(websocket.TextMessage, []byte("Should be sending missing logs if any"))
+				if err != nil {
+					log.Println(h.Name, "Ping Err:", err)
+				}
+
 				return nil
 			})
 
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			err := conn.WriteMessage(websocket.PingMessage, []byte("PING"))
+			err := conn.WriteMessage(websocket.PingMessage, []byte("Request Latest Log"))
 			if err != nil {
 				log.Println(h.Name, "Ping test", err)
 			}
