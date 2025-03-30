@@ -84,6 +84,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 	conn.SetPingHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(PONGTIME))
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+
 		// Get latest log info.
 		// Send the latest log over: time, operation, id?, msg, etc
 		log.Println(h.Name, "Should be request: ", appData)
@@ -168,6 +169,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		case ELECTION:
 
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+
 			if h.IsLeader {
 				conn.WriteMessage(websocket.TextMessage, []byte(AM_LEADER))
 			} else if h.hasLeader != nil {
@@ -203,6 +205,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				// general code for all consensus related. Each send is related to
 				// current consensus_topic in queue I believe.
 
+				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(CONSENSUS_YES))
 			}
 
@@ -243,9 +246,7 @@ func (h *Hub) StoreMessage() {
 	if h.IsLeader {
 
 		for _, conn := range h.connList {
-			// It should be this
-			// TODO: BUG
-			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT * 2))
+			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			err := conn.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
 			if err != nil {
 				log.Println(h.Name, "Error", err)
@@ -257,6 +258,7 @@ func (h *Hub) StoreMessage() {
 
 	} else {
 		//sends conn to leader
+		h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
@@ -315,6 +317,7 @@ func (h *Hub) Ping() {
 			conn.SetPongHandler(func(appData string) error {
 				conn.SetReadDeadline(time.Now().Add(PONGTIME))
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+
 				// Get the missing logs starting fro their latest logs.
 				log.Println(h.Name, "Should be telling me when(everything about the log): ", appData)
 				// get logs (will be in string format.
