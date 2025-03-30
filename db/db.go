@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"time"
 
 	"database/sql"
 
@@ -23,9 +24,10 @@ type Message struct {
 }
 
 type Operation struct {
+	Id        int
 	Operation string
-	// Msgid     int
-	Msg string
+	Data      string
+	Time      time.Time
 }
 
 func Init(name string) DB {
@@ -57,7 +59,7 @@ func (db *DB) createOperationTable() {
 
 	// Time is actually SUPER IMPORTANT HERE
 
-	_, err := db.conn.Exec("CREATE TABLE IF NOT EXISTS operations (id INTEGER PRIMARY KEY, operation TEXT, data TEXT)")
+	_, err := db.conn.Exec("CREATE TABLE IF NOT EXISTS operations (id INTEGER PRIMARY KEY, operation TEXT, data TEXT, time INTEGER DEFAULT (DATETIME('now', 'subsec')))")
 	assert.NoError(err, "Error Creating Operations Table")
 }
 
@@ -95,6 +97,7 @@ func (db *DB) GetMessages() ([]Message, error) {
 func (db *DB) AddOperation(operation string, message string) {
 	_, err := db.conn.Exec(fmt.Sprintf("INSERT INTO operations (operation, data) VALUES ('%s', '%s')", operation, message))
 	assert.NoError(err, "Error inserting operations")
+	log.Println("succesffully added operations")
 }
 
 func (db *DB) GetMissingLogs(startIdx int) ([]string, error) {
@@ -106,4 +109,37 @@ func (db *DB) GetMissingLogs(startIdx int) ([]string, error) {
 	}
 
 	return []string{}, nil
+}
+
+func (db *DB) GetLogs() ([]Operation, error) {
+	rows, err := db.conn.Query("SELECT * FROM operations")
+	defer rows.Close()
+	if err != nil {
+		log.Printf("Error querying message: %s\n", err)
+		return nil, fmt.Errorf("Error getting logs")
+	}
+
+	var operations []Operation
+
+	for rows.Next() {
+		var op Operation
+		var timeStr string
+		err := rows.Scan(&op.Id, &op.Operation, &op.Data, &timeStr)
+		if err != nil {
+			log.Printf("Error scanning logs: %s\n", err)
+			return nil, fmt.Errorf("Error scanning logs")
+		}
+
+		layout := "2006-01-02 15:04:05.000"
+		op.Time, err = time.Parse(layout, timeStr)
+		if err != nil {
+			log.Printf("Error scanning logs: %s\n", err)
+			return nil, fmt.Errorf("Error parsing time in logs")
+		}
+
+		operations = append(operations, op)
+	}
+
+	assert.NoError(rows.Err(), "Error iterating message rows")
+	return operations, nil
 }

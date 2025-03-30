@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	WRITEWAIT = 30 * time.Second
+	WRITEWAIT = 10 * time.Second
 	PONGTIME  = 70 * time.Second
 	PINGTIME  = (PONGTIME * 9) / 10
 	ONE_MIN   = 60
@@ -123,6 +123,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			h.Lock.Lock()
 			h.currentConsensus += 1
 			h.Lock.Unlock()
+			log.Println("I got consensus")
 
 			// Potential Scenario where you don't receive all the CONSENSUS
 			if h.currentConsensus == len(h.connList) {
@@ -142,7 +143,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				// Current Operation at HEAD of Queue
 				// The message also needs to be kept
 				// It will be added to nodes during the SYNC phase
-				h.DB.AddOperation(NEW_MSG_ADD, "")
+				h.DB.AddOperation(NEW_MSG_ADD, "This is a Test")
 
 				h.Lock.Unlock()
 
@@ -192,6 +193,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			if h.IsLeader {
 				// Sends to all other nodes.
 				h.StoreMessage()
+
 			} else {
 				// Check if I can store it or not
 				// if yes, send "consensus_agree"
@@ -241,7 +243,9 @@ func (h *Hub) StoreMessage() {
 	if h.IsLeader {
 
 		for _, conn := range h.connList {
-			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			// It should be this
+			// TODO: BUG
+			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT * 2))
 			err := conn.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
 			if err != nil {
 				log.Println(h.Name, "Error", err)
@@ -317,7 +321,7 @@ func (h *Hub) Ping() {
 
 				err := conn.WriteMessage(websocket.TextMessage, []byte("Should be sending missing logs if any"))
 				if err != nil {
-					log.Println(h.Name, "Ping Err:", err)
+					log.Println(h.Name, "Pong Err:", err)
 				}
 
 				return nil

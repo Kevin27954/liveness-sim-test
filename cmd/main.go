@@ -57,6 +57,15 @@ func main() {
 
 		fmt.Fprintf(w, messages)
 	})
+	http.HandleFunc("/get/logs", func(w http.ResponseWriter, r *http.Request) {
+		messages, err := serverNode.GetLogs()
+		if err != nil {
+			http.Error(w, "Error getting messages", http.StatusInternalServerError)
+			return
+		}
+
+		fmt.Fprintf(w, messages)
+	})
 
 	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Hub.Name, addr)
 
