@@ -18,6 +18,8 @@ const (
 	ONE_MIN   = 60
 
 	SYNC_TIME = 3 * time.Second
+
+	SEPERATOR = "|"
 )
 
 type Hub struct {
@@ -30,6 +32,8 @@ type Hub struct {
 	IsLeader         bool
 	hasLeader        *websocket.Conn
 	currentConsensus int
+
+	syncMap map[*websocket.Conn]int
 }
 
 func (h *Hub) ConnectConns() {
@@ -54,6 +58,7 @@ func (h *Hub) Run(addr int) {
 	}
 
 	interval := (addr % 8000) * 5
+	h.syncMap = make(map[*websocket.Conn]int)
 
 	newTicker := h.newTimerEveryMin(interval)
 	defer newTicker.Stop()
@@ -66,8 +71,8 @@ func (h *Hub) Run(addr int) {
 
 			log.Println(h.Name, "I am leader: ", h.IsLeader)
 			if h.IsLeader {
-				// Leader Ping
-				h.Ping()
+				// Leader Ping SYNC REQ
+				h.SyncReqInit()
 			} else if h.hasLeader != nil {
 				// Idk what yet
 			} else {
@@ -118,7 +123,32 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			return
 		}
 
-		switch string(msg) {
+		splitMsg := strings.Split(string(msg), SEPERATOR)
+
+		// Piece it back together?
+		code, logData := splitMsg[0], strings.Join(splitMsg[1:], SEPERATOR)
+
+		switch string(code) {
+		case SYNC_REQ_ASK:
+			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_ASK")
+			log.Println(logData)
+
+			//check if I have log that was received.
+
+		case SYNC_REQ_HAS:
+			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve SYNC_REQ_HAS")
+			// syncMap[conn] = (high + low) / 2
+			// low = mid + 1
+		case SYNC_REQ_NO_HAS:
+			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve SYNC_REQ_NO_HAS")
+			// syncMap[conn] = (high + low) / 2
+			// high = mid - 1
+
+		case SYNC_REQ_COMMIT:
+			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_COMMIT")
+			log.Println("Commiting Log(s) to LOCAL DB")
+			log.Println(logData)
+
 		case CONSENSUS_YES:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
 			h.Lock.Lock()
@@ -310,31 +340,44 @@ func (h *Hub) AddConn(conn *websocket.Conn) {
 }
 
 // It should be rebranded to SYNC
-func (h *Hub) Ping() {
+func (h *Hub) SyncReqInit() {
 	for _, conn := range h.connList {
 		go func(conn *websocket.Conn) {
 
-			conn.SetPongHandler(func(appData string) error {
-				conn.SetReadDeadline(time.Now().Add(PONGTIME))
-				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			// conn.SetPongHandler(func(appData string) error {
+			// 	conn.SetReadDeadline(time.Now().Add(PONGTIME))
+			// 	conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			//
+			// 	// Get the missing logs starting fro their latest logs.
+			// 	log.Println(h.Name, "Should be telling me when(everything about the log): ", appData)
+			// 	// get logs (will be in string format.
+			//
+			// 	err := conn.WriteMessage(websocket.TextMessage, []byte("Should be sending missing logs if any"))
+			// 	if err != nil {
+			// 		log.Println(h.Name, "Pong Err:", err)
+			// 	}
+			//
+			// 	return nil
+			// })
+			//
+			// conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+			// err := conn.WriteMessage(websocket.PingMessage, []byte("Request Latest Log"))
+			// if err != nil {
+			// 	log.Println(h.Name, "Ping test", err)
+			// }
 
-				// Get the missing logs starting fro their latest logs.
-				log.Println(h.Name, "Should be telling me when(everything about the log): ", appData)
-				// get logs (will be in string format.
-
-				err := conn.WriteMessage(websocket.TextMessage, []byte("Should be sending missing logs if any"))
-				if err != nil {
-					log.Println(h.Name, "Pong Err:", err)
-				}
-
-				return nil
-			})
+			syncInitMsg := SYNC_REQ_INIT + SEPERATOR + "message stuff"
 
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			err := conn.WriteMessage(websocket.PingMessage, []byte("Request Latest Log"))
+			err := conn.WriteMessage(websocket.TextMessage, []byte(syncInitMsg))
 			if err != nil {
-				log.Println(h.Name, "Ping test", err)
+				log.Println(h.Name, "Sync Init", err)
 			}
+
+			// Store it in a way that can be easily indexed else where.
+			h.Lock.Lock()
+			h.syncMap[conn] = 0
+			h.Lock.Unlock()
 
 		}(conn)
 	}

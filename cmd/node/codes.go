@@ -9,11 +9,16 @@ const (
 	AM_LEADER = "5"
 
 	ELECTION = "10"
-	VOTE_NO  = "11"
-	VOTE_YES = "12"
+	VOTE_YES = "11"
+	VOTE_NO  = "12"
 
 	// Operation Codes Start After at 20
 
 	NEW_MSG_ADD    = "20"
 	NEW_MSG_DELETE = "21"
+
+	SYNC_REQ_ASK    = "22"
+	SYNC_REQ_HAS    = "23"
+	SYNC_REQ_NO_HAS = "24"
+	SYNC_REQ_COMMIT = "25"
 )
