@@ -23,6 +23,10 @@ func (o Operation) String() string {
 	seperator := "*"                                    // Some random seperator
 	layout := "2006-01-02 15:04:05.999999999 -0700 MST" // format used for time
 
+	if o.Data == "" && o.Operation == "" {
+		return "Empty Operation"
+	}
+
 	return fmt.Sprintf("%d%s%s%s%s%s%d%s%s", o.Id, seperator, o.Operation, seperator, o.Time.Format(layout), seperator, o.Term, seperator, o.Data)
 }
 
@@ -34,21 +38,53 @@ func (db *DB) AddOperation(operation string, term int, message string) {
 
 // ID is technically the index
 func (db *DB) GetLogByID(id int) (Operation, error) {
+	row, err := db.conn.Query(fmt.Sprintf("SELECT * FROM operations WHERE id=%d", id))
+	assert.NoError(err, "Error querying operations table by id")
 
-	return Operation{}, nil
+	if row.Next() {
+		ops := Operation{}
+		err := row.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &ops.Time)
+		if err != nil {
+			log.Println("Unable to scan into Operation")
+			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in AddOperation()")
+		}
+
+		return ops, nil
+	} else {
+		if row.Err() != nil {
+			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in AddOperation()")
+		}
+
+		return Operation{}, nil
+	}
 }
 
 func (db *DB) GetMissingLogs(startIdx int) ([]Operation, error) {
-	// rows, err := db.conn.Query("SELECT * FROM operations WHERE id>startIdx")
-	// defer rows.Close()
-	// if err != nil {
-	// 	log.Printf("Error querying message: %s\n", err)
-	// 	return nil, fmt.Errorf("Error scanning message")
-	// }
-	//
-	// Push the logs as string into result
+	rows, err := db.conn.Query(fmt.Sprintf("SELECT * FROM operations WHERE id>%d", startIdx))
+	defer rows.Close()
+	if err != nil {
+		log.Printf("Error querying message: %s\n", err)
+		return nil, fmt.Errorf("Error scanning message")
+	}
 
-	return []Operation{}, nil
+	// Push the logs as string into result
+	opsArr := []Operation{}
+	for rows.Next() {
+		ops := Operation{}
+		err := rows.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &ops.Time)
+		if err != nil {
+			log.Println("Unable to scan into Operation")
+			return []Operation{}, fmt.Errorf("Unable to scan into operation: %s", err)
+		}
+
+		opsArr = append(opsArr, ops)
+	}
+
+	if rows.Err() != nil {
+		return []Operation{}, fmt.Errorf("Unable to get missing logs: %s", rows.Err())
+	}
+
+	return opsArr, nil
 }
 
 func (db *DB) GetLogs() ([]Operation, error) {

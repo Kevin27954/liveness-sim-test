@@ -111,12 +111,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 	for {
 		// The idea is that we don't know WHEN we might receive a message. So we just want to wait and be on
 		// the lookout for any potential messages that might come.
-		// Removes the deadline
-
-		// This does not work if it s a Ping Message, as if there is a PingHandler, it won't be counted towards
-		// the message and thus all readmessage is not ran. E.g. this line below does not work as conn.RecieveMessage()
-		// will never actually run unless it is a non Ping message.
-		// ```err := conn.SetReadDeadline(time.Now().Add(PONGTIME))```
 
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -196,6 +190,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 				// This would just be one log
 				syncInitMsg += SEPERATOR + nextLog.String()
+				log.Println(syncInitMsg)
 
 				err = conn.WriteMessage(websocket.TextMessage, []byte(syncInitMsg))
 				if err != nil {
@@ -204,24 +199,20 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			} else {
 				syncReqCommitMsg := SYNC_REQ_COMMIT
 
-				_, err := h.DB.GetMissingLogs(high)
+				opsArr, err := h.DB.GetMissingLogs(high)
 				if err != nil {
 					log.Println("Unable to get Log")
 					log.Fatal("Handle this error")
 				}
 
-				// Join missing logs, damn this is gonna be annoying
-
-				// I need to grab all logs
-				syncReqCommitMsg += SEPERATOR + "Test Msghg from both"
-
+				for _, ops := range opsArr {
+					syncReqCommitMsg += SEPERATOR + ops.String()
+				}
 				conn.WriteMessage(websocket.TextMessage, []byte(syncReqCommitMsg))
 			}
 
 		case SYNC_REQ_COMMIT:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_COMMIT")
-			log.Println("Commiting Log(s) to LOCAL DB")
-			log.Println(data)
 
 			low = 0
 			high, err = h.DB.GetNumLogs()
@@ -233,6 +224,8 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				h.Lock.Unlock()
 				return
 			}
+
+			log.Println(h.Name, "Operations: ", data)
 
 		case CONSENSUS_YES:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
@@ -352,7 +345,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 			// Pretend this is leader sending:
 			// leader sends new_msg_aadd request to all nodes
-			// alll nodes sends back a yes or no
+			// all nodes sends back a yes or no
 			// if yes then leader confirms and tells others to init request
 			// else leaders tells others to say no
 			// sends response message back to the node/user
