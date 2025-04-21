@@ -21,7 +21,7 @@ const (
 
 	SYNC_TIME = 3 * time.Second
 
-	SEPERATOR = "|"
+	SEPERATOR = "≡"
 )
 
 type Hub struct {
@@ -91,23 +91,6 @@ func (h *Hub) Run(addr int) {
 
 func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 	log.Println("Listening For Messages")
-
-	conn.SetPingHandler(func(appData string) error {
-		conn.SetReadDeadline(time.Now().Add(PONGTIME))
-		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-
-		// Get latest log info.
-		// Send the latest log over: time, operation, id?, msg, etc
-		log.Println(h.Name, "Should be request: ", appData)
-
-		err := conn.WriteMessage(websocket.PongMessage, []byte("Latest is at: XX:XX"))
-		if err != nil {
-			log.Println(h.Name, "Ping Err:", err)
-		}
-
-		return nil
-	})
-
 	for {
 		// The idea is that we don't know WHEN we might receive a message. So we just want to wait and be on
 		// the lookout for any potential messages that might come.
@@ -150,7 +133,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			has, err := h.DB.HasLog(data)
 			if err != nil {
 				log.Println("Unable to check for log")
-				log.Fatal("Handle this error")
 			}
 			//check if I have log that was received.
 			h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
@@ -185,7 +167,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				nextLog, err := h.DB.GetLogByID(h.syncMap[conn])
 				if err != nil {
 					log.Println("Unable to get Log")
-					log.Fatal("Handle this error")
 				}
 
 				// This would just be one log
@@ -196,13 +177,12 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				if err != nil {
 					log.Println(h.Name, "Sync Init", err)
 				}
-			} else {
+			} else { // It found the matching log
 				syncReqCommitMsg := SYNC_REQ_COMMIT
 
-				opsArr, err := h.DB.GetMissingLogs(high)
+				opsArr, err := h.DB.GetLogsById(high)
 				if err != nil {
 					log.Println("Unable to get Log")
-					log.Fatal("Handle this error")
 				}
 
 				for _, ops := range opsArr {
@@ -256,8 +236,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 				h.Lock.Unlock()
 
-				// We need to implement the SYNC immediately. It can be an extension of Ping Pong perhaps?
-				// or like replacing the Ping and Pong that exists.
 			}
 
 		case CONSENSUS_NO:
@@ -463,7 +441,6 @@ func (h *Hub) SyncReqInit() {
 			nextLog, err := h.DB.GetLogByID(h.syncMap[conn])
 			if err != nil {
 				log.Println("Unable to get Log")
-				log.Fatal("Handle this error")
 			}
 
 			syncInitMsg += SEPERATOR + nextLog.String()

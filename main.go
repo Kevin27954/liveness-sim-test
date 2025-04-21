@@ -51,18 +51,31 @@ func main() {
 
 			logPipe, err := startNodeCmd.StdoutPipe()
 			assert.NoError(err, "Unable to get Pipe")
+			errPipe, err := startNodeCmd.StderrPipe()
+			assert.NoError(err, "Unable to get Pipe")
 
 			err = startNodeCmd.Start()
 			// defer startNodeCmd.Wait()
 			assert.NoError(err, "Unable to start CMD")
 
-			reader := bufio.NewReader(logPipe)
-			scanner := bufio.NewScanner(reader)
+			scanner := bufio.NewScanner(logPipe)
+			errScanner := bufio.NewScanner(errPipe)
+
+			go func(l *sync.Mutex) {
+				for errScanner.Scan() {
+					text := errScanner.Text()
+					log.Printf("\033[%dm%s\033[0m", color+31, text)
+					l.Lock()
+					logFile.Write([]byte(text + "\n"))
+					l.Unlock()
+				}
+			}(l)
 
 			for scanner.Scan() {
-				log.Printf("\033[%dm%s\033[0m", color+31, scanner.Text())
+				text := scanner.Text()
+				log.Printf("\033[%dm%s\033[0m", color+31, text)
 				l.Lock()
-				logFile.Write([]byte(scanner.Text() + "\n"))
+				logFile.Write([]byte(text + "\n"))
 				l.Unlock()
 			}
 		}(&mutex)

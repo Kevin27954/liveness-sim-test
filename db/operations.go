@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+const SEPERATOR = "◊"
+
 type Operation struct {
 	Id        int
 	Operation string
@@ -20,25 +23,24 @@ type Operation struct {
 }
 
 func (o Operation) String() string {
-	seperator := "*"                                    // Some random seperator
 	layout := "2006-01-02 15:04:05.999999999 -0700 MST" // format used for time
 
 	if o.Data == "" && o.Operation == "" {
-		return "Empty Operation"
+		return ""
 	}
 
-	return fmt.Sprintf("%d%s%s%s%s%s%d%s%s", o.Id, seperator, o.Operation, seperator, o.Time.Format(layout), seperator, o.Term, seperator, o.Data)
+	return fmt.Sprintf("%d%s%s%s%s%s%d%s%s", o.Id, SEPERATOR, o.Operation, SEPERATOR, o.Time.Format(layout), SEPERATOR, o.Term, SEPERATOR, o.Data)
 }
 
 func (db *DB) AddOperation(operation string, term int, message string) {
-	_, err := db.conn.Exec(fmt.Sprintf("INSERT INTO operations (operation, term, data) VALUES ('%s', '%d', '%s')", operation, term, message))
+	_, err := db.conn.Exec("INSERT INTO operations (operation, term, data) VALUES ($1, $2, $3)", operation, term, message)
 	assert.NoError(err, "Error inserting operations")
 	log.Println("succesffully added operations")
 }
 
 // ID is technically the index
 func (db *DB) GetLogByID(id int) (Operation, error) {
-	row, err := db.conn.Query(fmt.Sprintf("SELECT * FROM operations WHERE id=%d", id))
+	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1", id)
 	assert.NoError(err, "Error querying operations table by id")
 
 	if row.Next() {
@@ -59,8 +61,8 @@ func (db *DB) GetLogByID(id int) (Operation, error) {
 	}
 }
 
-func (db *DB) GetMissingLogs(startIdx int) ([]Operation, error) {
-	rows, err := db.conn.Query(fmt.Sprintf("SELECT * FROM operations WHERE id>%d", startIdx))
+func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
+	rows, err := db.conn.Query("SELECT * FROM operations WHERE id>$1", startIdx)
 	defer rows.Close()
 	if err != nil {
 		log.Printf("Error querying message: %s\n", err)
@@ -87,6 +89,7 @@ func (db *DB) GetMissingLogs(startIdx int) ([]Operation, error) {
 	return opsArr, nil
 }
 
+// Might be pointless. Use getlogsbyid
 func (db *DB) GetLogs() ([]Operation, error) {
 	rows, err := db.conn.Query("SELECT * FROM operations")
 	defer rows.Close()
@@ -143,19 +146,69 @@ func (db *DB) GetNumLogs() (int, error) {
 }
 
 func (db *DB) HasLog(logStr string) (bool, error) {
-	// WRITE CODE TO:
-	// PARSE logStr
-	// CHECK DB (MAYBE DO BLOOM FILTER TOO IF I HAVE TIME OR INTEREST)
-	// IF RESULT IS NOT === 0 RETURN TRUE
-	// ELSE RETURN FALSE
-	// OF CORUSE RETURN ANY ERRORS
+	ops, err := parseLog(logStr)
+	if err != nil {
+		return false, err
+	}
+
+	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1 AND operation=$2 AND term=$3", ops.Id, ops.Operation, ops.Term)
+	if err != nil {
+		return false, err
+	}
+
+	return row.Next(), nil
+}
+
+func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
+	var opsArr []Operation
+	hasErr := false
+
+	for _, ops := range missingLogs {
+		ops, err := parseLog(ops)
+		if err != nil {
+			return false, err
+		}
+
+		opsArr = append(opsArr, ops)
+	}
+
+	tx, err := db.conn.BeginTx(context.Background(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	tx.Exec("DELETE FROM operatins WHERE id=$1", opsArr[0].Id)
+	stmt, err := tx.Prepare("INSERT INTO operations (operation, term, data) VALUES (?, ?, ?)")
+
+	for _, ops := range opsArr {
+		_, err := stmt.Exec(ops.Operation, ops.Term, ops.Data)
+		if err != nil {
+			hasErr = true
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		hasErr = true
+	}
+
+	if hasErr {
+		err := tx.Rollback()
+		if err != nil {
+			log.Fatal("WTF, Can't rollback: ", err)
+		}
+	}
 
 	return true, nil
 }
 
 // Helper Function to Parse Logs from String to Log
-func parseLogs(logStr string) (Operation, error) {
-	data := strings.Split(logStr, "*")
+func parseLog(logStr string) (Operation, error) {
+	if logStr == "" {
+		return Operation{}, nil
+	}
+
+	data := strings.Split(logStr, SEPERATOR)
 	op := Operation{}
 	var err error
 

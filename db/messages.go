@@ -14,7 +14,7 @@ type Message struct {
 }
 
 func (db *DB) AddMessage(message string) {
-	_, err := db.conn.Exec(fmt.Sprintf("INSERT INTO message (message) VALUES ('%s')", message))
+	_, err := db.conn.Exec("INSERT INTO message (message) VALUES ($1)", message)
 	assert.NoError(err, "Error inserting message")
 }
 
