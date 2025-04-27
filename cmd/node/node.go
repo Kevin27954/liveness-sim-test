@@ -110,7 +110,7 @@ func (n *Node) recieveMessage() {
 
 		assert.Assert(len(message) <= 512, len(message), 512, "greater than 512 bytes")
 
-		n.Hub.StoreMessage()
+		n.Hub.StoreMessage(string(message))
 		// n.Hub.DB.AddMessage(string(message))
 
 		log.Printf("Recieved: %s", message)

@@ -21,8 +21,13 @@ const (
 
 	SYNC_TIME = 3 * time.Second
 
-	SEPERATOR = "≡"
+	SEPERATOR = "≡" // A Hambuger menu looking thing
 )
+
+type Task struct {
+	operation string
+	data      string
+}
 
 type Hub struct {
 	Name     string
@@ -38,7 +43,12 @@ type Hub struct {
 	currentConsensus int
 	term             int
 
-	syncMap map[*websocket.Conn]int
+	syncMap map[*websocket.Conn]int // The thing that keeps track of binary serach idx
+
+	consensusMap  [20]int // This will just be a random number for now.
+	taskQueue     []Task
+	taskCompleted int
+	taskStarted   int
 }
 
 func (h *Hub) ConnectConns() {
@@ -209,33 +219,31 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 		case CONSENSUS_YES:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
-			h.Lock.Lock()
-			h.currentConsensus += 1
-			h.Lock.Unlock()
+
 			log.Println("I got consensus")
 
-			// Take into account of Potential Scenario where you don't receive all the CONSENSUS
-			if h.currentConsensus == len(h.connList) {
-				// for _, conn := range h.connList {
-				// 	conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-				// 	// Current Operation at HEAD of Queue
-				// 	err := conn.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
-				// 	if err != nil {
-				// 		log.Println(h.Name, "Error", err)
-				// 	}
-				// }
+			idx, err := strconv.Atoi(data)
+			if err != nil {
+				log.Println("Error parsing num from consensus yes: ", err)
+			}
 
+			if idx < h.taskCompleted {
+				continue // IGNORE VOTE
+			}
+
+			h.consensusMap[idx%len(h.consensusMap)] += 1
+
+			if h.consensusMap[idx%len(h.consensusMap)] > len(h.connList)/2 {
 				h.Lock.Lock()
-				h.currentConsensus = 0
-				// Pop Current Operation from Queue
+				h.taskCompleted += 1
+				h.consensusMap[idx%len(h.consensusMap)] = 0
 
-				// Current Operation at HEAD of Queue
-				// The message also needs to be kept
-				// It will be added to nodes during the SYNC phase
-				h.DB.AddOperation(NEW_MSG_ADD, h.term, "This is a Test")
+				// POP from taskQueue
+				operation := h.taskQueue[0]
+				h.taskQueue = h.taskQueue[1:]
 
+				h.DB.AddOperation(operation.operation, h.term, operation.data)
 				h.Lock.Unlock()
-
 			}
 
 		case CONSENSUS_NO:
@@ -302,23 +310,27 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		case NEW_MSG_ADD:
 			// If is leader, send it to other conns
 
-			// Respond with vote yes or vote no?
-
 			if h.IsLeader {
 				// Sends to all other nodes.
-				h.StoreMessage()
+
+				h.StoreMessage("")
+				// This is leader so it can be blank
+				h.Lock.Lock()
+				// I actually need to set up the code bruh
+				h.taskQueue = append(h.taskQueue, Task{operation: code, data: data})
+				h.Lock.Unlock()
 
 			} else {
 				// Check if I can store it or not
 				// if yes, send "consensus_agree"
 				// else, send "consensus_disagree"
 
-				// "consensus_agree" & "consensus_disagree" are going to be the
-				// general code for all consensus related. Each send is related to
-				// current consensus_topic in queue I believe.
-
+				// Data here is the taskStarted number
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(CONSENSUS_YES))
+				err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", CONSENSUS_YES, SEPERATOR, data)))
+				if err != nil {
+					log.Println("Error writng back to leader, new msg add: ", err)
+				}
 			}
 
 			// Pretend this is leader sending:
@@ -351,18 +363,22 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 // Can probably pass the code in the input params and able to deal with both
 // add msg and delete msg.
-func (h *Hub) StoreMessage() {
-	// Logic should be encompassed here such that ti can be called
-	// when someone adds a message.
+// Leader doesn't need an actual message
+func (h *Hub) StoreMessage(message string) {
 
 	if h.IsLeader {
 
 		for _, conn := range h.connList {
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			err := conn.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
+			err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", NEW_MSG_ADD, SEPERATOR, h.taskStarted)))
 			if err != nil {
 				log.Println(h.Name, "Error", err)
 			}
+
+			// This might be needed here
+			h.Lock.Lock()
+			h.taskStarted += 1
+			h.Lock.Unlock()
 
 			// Probably store the thing in a queue?
 			// When they send msg back, we do stuff to it (e.g. remove from queue?).
@@ -371,7 +387,7 @@ func (h *Hub) StoreMessage() {
 	} else {
 		//sends conn to leader
 		h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(NEW_MSG_ADD))
+		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", NEW_MSG_ADD, SEPERATOR, message)))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
 		}
@@ -472,8 +488,6 @@ func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 func (h *Hub) nodeAllAgree() bool {
 	minConsensus := len(h.connList) / 2
 	// minConsensus := len(h.connList)
-	if h.currentConsensus >= minConsensus {
-		return true
-	}
-	return false
+
+	return h.currentConsensus >= minConsensus
 }
