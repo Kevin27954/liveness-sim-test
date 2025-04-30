@@ -26,7 +26,7 @@ func (o Operation) String() string {
 	layout := "2006-01-02 15:04:05.999999999 -0700 MST" // format used for time
 
 	if o.Data == "" && o.Operation == "" {
-		return ""
+		return "Empty"
 	}
 
 	return fmt.Sprintf("%d%s%s%s%s%s%d%s%s", o.Id, SEPERATOR, o.Operation, SEPERATOR, o.Time.Format(layout), SEPERATOR, o.Term, SEPERATOR, o.Data)
@@ -45,16 +45,24 @@ func (db *DB) GetLogByID(id int) (Operation, error) {
 
 	if row.Next() {
 		ops := Operation{}
-		err := row.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &ops.Time)
+		var timeStr string
+		err := row.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &timeStr)
 		if err != nil {
-			log.Println("Unable to scan into Operation")
-			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in AddOperation()")
+			log.Println("Unable to scan into Operation ", err)
+			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in GetLogById()")
+		}
+
+		layout := "2006-01-02 15:04:05.000"
+		ops.Time, err = time.Parse(layout, timeStr)
+		if err != nil {
+			log.Printf("Error scanning logs: %s\n", err)
+			return Operation{}, fmt.Errorf("Error parsing time in logs")
 		}
 
 		return ops, nil
 	} else {
 		if row.Err() != nil {
-			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in AddOperation()")
+			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in GetLogById()")
 		}
 
 		return Operation{}, nil
@@ -73,10 +81,18 @@ func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
 	opsArr := []Operation{}
 	for rows.Next() {
 		ops := Operation{}
-		err := rows.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &ops.Time)
+		var timeStr string
+		err := rows.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &timeStr)
 		if err != nil {
 			log.Println("Unable to scan into Operation")
 			return []Operation{}, fmt.Errorf("Unable to scan into operation: %s", err)
+		}
+
+		layout := "2006-01-02 15:04:05.000"
+		ops.Time, err = time.Parse(layout, timeStr)
+		if err != nil {
+			log.Printf("Error scanning logs: %s\n", err)
+			return nil, fmt.Errorf("Error parsing time in logs")
 		}
 
 		opsArr = append(opsArr, ops)
@@ -103,7 +119,7 @@ func (db *DB) GetLogs() ([]Operation, error) {
 	for rows.Next() {
 		var op Operation
 		var timeStr string
-		err := rows.Scan(&op.Id, &op.Operation, &op.Data, &timeStr)
+		err := rows.Scan(&op.Id, &op.Operation, &op.Data, &op.Term, &timeStr)
 		if err != nil {
 			log.Printf("Error scanning logs: %s\n", err)
 			return nil, fmt.Errorf("Error scanning logs")
@@ -120,6 +136,11 @@ func (db *DB) GetLogs() ([]Operation, error) {
 	}
 
 	assert.NoError(rows.Err(), "Error iterating message rows")
+
+	for _, op := range operations {
+		log.Println("OP:", op)
+	}
+
 	return operations, nil
 }
 
@@ -160,6 +181,16 @@ func (db *DB) HasLog(logStr string) (bool, error) {
 }
 
 func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
+
+	log.Println("ALL LOGS: ", missingLogs, " LENTH: ", len(missingLogs))
+	log.Println("The value: ", missingLogs[0], " is equal to empty? ", missingLogs[0] == "")
+
+	// if len(missingLogs) == 0 || len(missingLogs) == 1 && len(missingLogs[0]) == 0 {
+	if len(missingLogs) == 0 {
+		log.Println("Was empty")
+		return true, nil
+	}
+
 	var opsArr []Operation
 	hasErr := false
 
@@ -177,13 +208,19 @@ func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
 		return false, err
 	}
 
-	tx.Exec("DELETE FROM operatins WHERE id=$1", opsArr[0].Id)
+	_, err = tx.Exec("DELETE FROM operations WHERE id>=$1", opsArr[0].Id)
+	if err != nil {
+		log.Fatal("FUCKED UP, ", err)
+	}
+
 	stmt, err := tx.Prepare("INSERT INTO operations (operation, term, data) VALUES (?, ?, ?)")
+	defer stmt.Close()
 
 	for _, ops := range opsArr {
-		_, err := stmt.Exec(ops.Operation, ops.Term, ops.Data)
+		_, err = stmt.Exec(ops.Operation, ops.Term, ops.Data)
 		if err != nil {
 			hasErr = true
+			log.Println("error happend during stmt exec in tx: ", err)
 		}
 	}
 
@@ -193,11 +230,14 @@ func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
 	}
 
 	if hasErr {
+		log.Println("Error from commiting: ", err)
 		err := tx.Rollback()
 		if err != nil {
-			log.Fatal("WTF, Can't rollback: ", err)
+			log.Println("WTF, Can't rollback: ", err)
 		}
 	}
+
+	log.Println("I finished")
 
 	return true, nil
 }

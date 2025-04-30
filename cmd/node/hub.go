@@ -17,7 +17,7 @@ const (
 	WRITEWAIT = 10 * time.Second
 	PONGTIME  = 70 * time.Second
 	PINGTIME  = (PONGTIME * 9) / 10
-	ONE_MIN   = 60
+	ONE_MIN   = 30
 
 	SYNC_TIME = 3 * time.Second
 
@@ -27,6 +27,12 @@ const (
 type Task struct {
 	operation string
 	data      string
+}
+
+type BinarySearch struct {
+	Low  int
+	Mid  int
+	High int
 }
 
 type Hub struct {
@@ -43,7 +49,7 @@ type Hub struct {
 	currentConsensus int
 	term             int
 
-	syncMap map[*websocket.Conn]int // The thing that keeps track of binary serach idx
+	syncMap map[*websocket.Conn]BinarySearch // The thing that keeps track of binary serach idx
 
 	consensusMap  [20]int // This will just be a random number for now.
 	taskQueue     []Task
@@ -73,7 +79,7 @@ func (h *Hub) Run(addr int) {
 	}
 
 	interval := (addr % 8000) * 5
-	h.syncMap = make(map[*websocket.Conn]int)
+	h.syncMap = make(map[*websocket.Conn]BinarySearch)
 	h.term = -1
 
 	newTicker := h.newTimerEveryMin(interval)
@@ -101,6 +107,7 @@ func (h *Hub) Run(addr int) {
 
 func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 	log.Println("Listening For Messages")
+
 	for {
 		// The idea is that we don't know WHEN we might receive a message. So we just want to wait and be on
 		// the lookout for any potential messages that might come.
@@ -122,66 +129,63 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		code, data := splitMsg[0], strings.Join(splitMsg[1:], SEPERATOR)
 
 		// This is basically the index / ID in db
-		low := 0
-		high, err := h.DB.GetNumLogs()
-		if err != nil {
-			log.Println(h.Name, "DB Query err: ", err)
-
-			h.Lock.Lock()
-			h.removeConn(conn)
-			h.Lock.Unlock()
-			return
-		}
-
-		h.syncMap[conn] = (high + low) / 2
+		log.Println(h.Name, "The mid is", h.syncMap[conn])
 
 		switch string(code) {
 		case SYNC_REQ_ASK:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_ASK")
 			log.Println("Data gotten for sync: ", data)
 
+			h.Lock.Lock()
 			has, err := h.DB.HasLog(data)
 			if err != nil {
-				log.Println("Unable to check for log")
+				log.Fatal("Unable to check for log")
 			}
+			h.Lock.Unlock()
+
 			//check if I have log that was received.
 			h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			if has {
+				log.Println(h.Name, " I have")
 				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(SYNC_REQ_HAS))
 			} else {
+				log.Println(h.Name, " I no ")
 				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(SYNC_REQ_NO_HAS))
 			}
 
 		case SYNC_REQ_HAS, SYNC_REQ_NO_HAS:
 			assert.Assert(h.IsLeader == true, h.IsLeader, true, "Only Leaders can recieve SYNC_REQ_HAS")
 
+			h.Lock.Lock()
+			cpy := h.syncMap[conn]
+			h.Lock.Unlock()
+
 			switch code {
 			case SYNC_REQ_HAS:
-				low = h.syncMap[conn] + 1
-				h.Lock.Lock()
-				h.syncMap[conn] = (high + low) / 2
-				h.Lock.Unlock()
+				cpy.Low = cpy.Mid + 1
+				cpy.Mid = (cpy.High + cpy.Low) / 2
 
 			case SYNC_REQ_NO_HAS:
-				high = h.syncMap[conn] - 1
-				h.Lock.Lock()
-				h.syncMap[conn] = (high + low) / 2
-				h.Lock.Unlock()
-
+				cpy.High = cpy.Mid - 1
+				cpy.Mid = (cpy.High + cpy.Low) / 2
 			}
 
+			log.Println(h.Name, "The new mid is", h.syncMap[conn])
+			log.Println(h.Name, "The new high and low ie ", cpy.High, " - ", cpy.Low)
+
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			if low <= high {
+			if cpy.Low <= cpy.High {
 				syncInitMsg := SYNC_REQ_ASK
 
-				nextLog, err := h.DB.GetLogByID(h.syncMap[conn])
+				h.Lock.Lock()
+				nextLog, err := h.DB.GetLogByID(cpy.Mid)
 				if err != nil {
 					log.Println("Unable to get Log")
 				}
+				h.Lock.Unlock()
 
 				// This would just be one log
 				syncInitMsg += SEPERATOR + nextLog.String()
-				log.Println(syncInitMsg)
 
 				err = conn.WriteMessage(websocket.TextMessage, []byte(syncInitMsg))
 				if err != nil {
@@ -190,32 +194,37 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			} else { // It found the matching log
 				syncReqCommitMsg := SYNC_REQ_COMMIT
 
-				opsArr, err := h.DB.GetLogsById(high)
+				h.Lock.Lock()
+				opsArr, err := h.DB.GetLogsById(cpy.High)
 				if err != nil {
 					log.Println("Unable to get Log")
 				}
+				h.Lock.Unlock()
 
 				for _, ops := range opsArr {
 					syncReqCommitMsg += SEPERATOR + ops.String()
 				}
+
+				log.Println("Before sending message: ", syncReqCommitMsg)
 				conn.WriteMessage(websocket.TextMessage, []byte(syncReqCommitMsg))
 			}
+
+			h.syncMap[conn] = cpy
 
 		case SYNC_REQ_COMMIT:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_COMMIT")
 
-			low = 0
-			high, err = h.DB.GetNumLogs()
+			log.Println(data)
+			opsStr := strings.Split(data, SEPERATOR)
+
+			h.Lock.Lock()
+			log.Println("I locked")
+			_, err = h.DB.CommitLogs(opsStr)
 			if err != nil {
-				log.Println(h.Name, "DB Query err: ", err)
-
-				h.Lock.Lock()
-				h.removeConn(conn)
-				h.Lock.Unlock()
-				return
+				log.Println(h.Name, "error commiting logs")
 			}
-
-			log.Println(h.Name, "Operations: ", data)
+			log.Println("I unlocked")
+			h.Lock.Unlock()
 
 		case CONSENSUS_YES:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
@@ -228,10 +237,13 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			}
 
 			if idx < h.taskCompleted {
+				log.Println("IGNORED ", idx, " ", h.taskCompleted)
 				continue // IGNORE VOTE
 			}
 
+			h.Lock.Lock()
 			h.consensusMap[idx%len(h.consensusMap)] += 1
+			h.Lock.Unlock()
 
 			if h.consensusMap[idx%len(h.consensusMap)] > len(h.connList)/2 {
 				h.Lock.Lock()
@@ -308,23 +320,11 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			h.Lock.Unlock()
 
 		case NEW_MSG_ADD:
-			// If is leader, send it to other conns
 
 			if h.IsLeader {
-				// Sends to all other nodes.
-
-				h.StoreMessage("")
-				// This is leader so it can be blank
-				h.Lock.Lock()
-				// I actually need to set up the code bruh
-				h.taskQueue = append(h.taskQueue, Task{operation: code, data: data})
-				h.Lock.Unlock()
+				h.StoreMessage(data)
 
 			} else {
-				// Check if I can store it or not
-				// if yes, send "consensus_agree"
-				// else, send "consensus_disagree"
-
 				// Data here is the taskStarted number
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 				err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", CONSENSUS_YES, SEPERATOR, data)))
@@ -333,27 +333,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				}
 			}
 
-			// Pretend this is leader sending:
-			// leader sends new_msg_aadd request to all nodes
-			// all nodes sends back a yes or no
-			// if yes then leader confirms and tells others to init request
-			// else leaders tells others to say no
-			// sends response message back to the node/user
-
-			// To do this, I'm pretty sure ou need to store
-			// What it is that is being voted for right now. Thus far there is only one.
-			// But now there ist two, so there isa  need to have a way of what is being voted on.
-			// Wellactually there is still only one, since election is done to itself rather than
-			// being shred with other nodes.
-
-			// we then also need to know what it is we are adding to the db.
-
-			// Pretend this is node sending to leader:
-			// Gets msg request
-			// sends to the leader
-			// proceed with above scenario
-			// recieve result of consensus
-			// send backs error message
 		default:
 			log.Println(h.Name, "I got msg func:", string(msg))
 		}
@@ -363,7 +342,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 // Can probably pass the code in the input params and able to deal with both
 // add msg and delete msg.
-// Leader doesn't need an actual message
 func (h *Hub) StoreMessage(message string) {
 
 	if h.IsLeader {
@@ -375,14 +353,12 @@ func (h *Hub) StoreMessage(message string) {
 				log.Println(h.Name, "Error", err)
 			}
 
-			// This might be needed here
-			h.Lock.Lock()
-			h.taskStarted += 1
-			h.Lock.Unlock()
-
-			// Probably store the thing in a queue?
-			// When they send msg back, we do stuff to it (e.g. remove from queue?).
 		}
+
+		h.Lock.Lock()
+		h.taskStarted += 1
+		h.taskQueue = append(h.taskQueue, Task{operation: NEW_MSG_ADD, data: message})
+		h.Lock.Unlock()
 
 	} else {
 		//sends conn to leader
@@ -451,13 +427,33 @@ func (h *Hub) AddConn(conn *websocket.Conn) {
 func (h *Hub) SyncReqInit() {
 	for _, conn := range h.connList {
 		go func(conn *websocket.Conn) {
+
+			low := 1
+			h.Lock.Lock()
+			high, err := h.DB.GetNumLogs()
+			if err != nil {
+				log.Println(h.Name, "DB Query err: ", err)
+
+				h.removeConn(conn)
+				return
+			}
+			h.Lock.Unlock()
+
+			h.syncMap[conn] = BinarySearch{Low: low, Mid: (low + high) / 2, High: high}
+
+			if h.syncMap[conn].Mid == 0 {
+				log.Println(h.Name, " The idx is 0 meaning there is nothing?")
+				return
+			}
+
 			syncInitMsg := SYNC_REQ_ASK
 
-			// We would append the message to the SyncInitMsg
-			nextLog, err := h.DB.GetLogByID(h.syncMap[conn])
+			h.Lock.Lock()
+			nextLog, err := h.DB.GetLogByID(h.syncMap[conn].Mid)
 			if err != nil {
 				log.Println("Unable to get Log")
 			}
+			h.Lock.Unlock()
 
 			syncInitMsg += SEPERATOR + nextLog.String()
 
@@ -466,11 +462,6 @@ func (h *Hub) SyncReqInit() {
 			if err != nil {
 				log.Println(h.Name, "Sync Init", err)
 			}
-
-			// Store it in a way that can be easily indexed else where.
-			h.Lock.Lock()
-			h.syncMap[conn] = 0
-			h.Lock.Unlock()
 
 		}(conn)
 	}
