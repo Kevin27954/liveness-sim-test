@@ -32,10 +32,10 @@ func (o Operation) String() string {
 	return fmt.Sprintf("%d%s%s%s%s%s%d%s%s", o.Id, SEPERATOR, o.Operation, SEPERATOR, o.Time.Format(layout), SEPERATOR, o.Term, SEPERATOR, o.Data)
 }
 
-func (db *DB) AddOperation(operation string, term int, message string) {
+func (db *DB) AddOperation(operation string, term int, message string) error {
 	_, err := db.conn.Exec("INSERT INTO operations (operation, term, data) VALUES ($1, $2, $3)", operation, term, message)
 	assert.NoError(err, "Error inserting operations")
-	log.Println("succesffully added operations")
+	return err
 }
 
 // ID is technically the index
@@ -49,20 +49,20 @@ func (db *DB) GetLogByID(id int) (Operation, error) {
 		err := row.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &timeStr)
 		if err != nil {
 			log.Println("Unable to scan into Operation ", err)
-			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in GetLogById()")
+			return Operation{}, err
 		}
 
 		layout := "2006-01-02 15:04:05.000"
 		ops.Time, err = time.Parse(layout, timeStr)
 		if err != nil {
 			log.Printf("Error scanning logs: %s\n", err)
-			return Operation{}, fmt.Errorf("Error parsing time in logs")
+			return Operation{}, err
 		}
 
 		return ops, nil
 	} else {
 		if row.Err() != nil {
-			return Operation{}, fmt.Errorf("Unable or no data to get for Row data in GetLogById()")
+			return Operation{}, err
 		}
 
 		return Operation{}, nil
@@ -74,7 +74,7 @@ func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
 	defer rows.Close()
 	if err != nil {
 		log.Printf("Error querying message: %s\n", err)
-		return nil, fmt.Errorf("Error scanning message")
+		return nil, err
 	}
 
 	// Push the logs as string into result
@@ -84,22 +84,22 @@ func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
 		var timeStr string
 		err := rows.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &timeStr)
 		if err != nil {
-			log.Println("Unable to scan into Operation")
-			return []Operation{}, fmt.Errorf("Unable to scan into operation: %s", err)
+			log.Println("Unable to scan into Operation, ", err)
+			return []Operation{}, err
 		}
 
 		layout := "2006-01-02 15:04:05.000"
 		ops.Time, err = time.Parse(layout, timeStr)
 		if err != nil {
 			log.Printf("Error scanning logs: %s\n", err)
-			return nil, fmt.Errorf("Error parsing time in logs")
+			return nil, err
 		}
 
 		opsArr = append(opsArr, ops)
 	}
 
 	if rows.Err() != nil {
-		return []Operation{}, fmt.Errorf("Unable to get missing logs: %s", rows.Err())
+		return []Operation{}, err
 	}
 
 	return opsArr, nil
@@ -111,7 +111,7 @@ func (db *DB) GetLogs() ([]Operation, error) {
 	defer rows.Close()
 	if err != nil {
 		log.Printf("Error querying message: %s\n", err)
-		return nil, fmt.Errorf("Error getting logs")
+		return nil, err
 	}
 
 	var operations []Operation
@@ -122,14 +122,14 @@ func (db *DB) GetLogs() ([]Operation, error) {
 		err := rows.Scan(&op.Id, &op.Operation, &op.Data, &op.Term, &timeStr)
 		if err != nil {
 			log.Printf("Error scanning logs: %s\n", err)
-			return nil, fmt.Errorf("Error scanning logs")
+			return nil, err
 		}
 
 		layout := "2006-01-02 15:04:05.000"
 		op.Time, err = time.Parse(layout, timeStr)
 		if err != nil {
 			log.Printf("Error scanning logs: %s\n", err)
-			return nil, fmt.Errorf("Error parsing time in logs")
+			return nil, err
 		}
 
 		operations = append(operations, op)
@@ -149,7 +149,7 @@ func (db *DB) GetNumLogs() (int, error) {
 	defer num.Close()
 	if err != nil {
 		log.Printf("Error querying # of operations: %s\n", err)
-		return 0, fmt.Errorf("Error getting count of logs")
+		return 0, err
 	}
 
 	if num.Next() {
@@ -157,21 +157,16 @@ func (db *DB) GetNumLogs() (int, error) {
 		err = num.Scan(&numRow)
 		if err != nil {
 			log.Printf("Error scanningo # of perations logs: %s\n", err)
-			return 0, fmt.Errorf("Error scanning logs")
+			return 0, err
 		}
 
 		return numRow, nil
 	} else {
-		return 0, fmt.Errorf("Error scanning logs")
+		return 0, err
 	}
 }
 
-func (db *DB) HasLog(logStr string) (bool, error) {
-	ops, err := parseLog(logStr)
-	if err != nil {
-		return false, err
-	}
-
+func (db *DB) HasLog(ops Operation) (bool, error) {
 	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1 AND operation=$2 AND term=$3", ops.Id, ops.Operation, ops.Term)
 	if err != nil {
 		return false, err
@@ -180,28 +175,10 @@ func (db *DB) HasLog(logStr string) (bool, error) {
 	return row.Next(), nil
 }
 
-func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
+// I need to look into this more
+func (db *DB) CommitLogs(opsArr []Operation) (bool, error) {
 
-	log.Println("ALL LOGS: ", missingLogs, " LENTH: ", len(missingLogs))
-	log.Println("The value: ", missingLogs[0], " is equal to empty? ", missingLogs[0] == "")
-
-	// if len(missingLogs) == 0 || len(missingLogs) == 1 && len(missingLogs[0]) == 0 {
-	if len(missingLogs) == 0 {
-		log.Println("Was empty")
-		return true, nil
-	}
-
-	var opsArr []Operation
 	hasErr := false
-
-	for _, ops := range missingLogs {
-		ops, err := parseLog(ops)
-		if err != nil {
-			return false, err
-		}
-
-		opsArr = append(opsArr, ops)
-	}
 
 	tx, err := db.conn.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -210,7 +187,7 @@ func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
 
 	_, err = tx.Exec("DELETE FROM operations WHERE id>=$1", opsArr[0].Id)
 	if err != nil {
-		log.Fatal("FUCKED UP, ", err)
+		log.Println("Error performing TX - Delete Op: ", err)
 	}
 
 	stmt, err := tx.Prepare("INSERT INTO operations (operation, term, data) VALUES (?, ?, ?)")
@@ -220,7 +197,7 @@ func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
 		_, err = stmt.Exec(ops.Operation, ops.Term, ops.Data)
 		if err != nil {
 			hasErr = true
-			log.Println("error happend during stmt exec in tx: ", err)
+			log.Println("Error exec TX STMT: ", err)
 		}
 	}
 
@@ -230,20 +207,18 @@ func (db *DB) CommitLogs(missingLogs []string) (bool, error) {
 	}
 
 	if hasErr {
-		log.Println("Error from commiting: ", err)
+		log.Println("Error from Commiting: ", err)
 		err := tx.Rollback()
 		if err != nil {
-			log.Println("WTF, Can't rollback: ", err)
+			log.Println("Unable to rollback: ", err)
 		}
 	}
-
-	log.Println("I finished")
 
 	return true, nil
 }
 
 // Helper Function to Parse Logs from String to Log
-func parseLog(logStr string) (Operation, error) {
+func ParseLog(logStr string) (Operation, error) {
 	if logStr == "" {
 		return Operation{}, nil
 	}

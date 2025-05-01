@@ -1,7 +1,6 @@
 package db
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
@@ -13,9 +12,10 @@ type Message struct {
 	Msg string
 }
 
-func (db *DB) AddMessage(message string) {
+func (db *DB) AddMessage(message string) error {
 	_, err := db.conn.Exec("INSERT INTO message (message) VALUES ($1)", message)
 	assert.NoError(err, "Error inserting message")
+	return err
 }
 
 func (db *DB) GetMessages() ([]Message, error) {
@@ -23,7 +23,7 @@ func (db *DB) GetMessages() ([]Message, error) {
 	defer rows.Close()
 	if err != nil {
 		log.Printf("Error querying message: %s\n", err)
-		return nil, fmt.Errorf("Error scanning message")
+		return nil, err
 	}
 
 	var messages []Message
@@ -34,7 +34,7 @@ func (db *DB) GetMessages() ([]Message, error) {
 
 		if err != nil {
 			log.Printf("Error scanning message: %s\n", err)
-			return nil, fmt.Errorf("Error scanning messages")
+			return nil, err
 		}
 
 		messages = append(messages, msg)

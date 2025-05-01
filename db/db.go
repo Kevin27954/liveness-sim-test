@@ -39,12 +39,6 @@ func (db *DB) createMessageTable() {
 }
 
 func (db *DB) createOperationTable() {
-	// data can be Something else other than Text
-	// For now we can ignore the ID part. I just wnt it working for now.
-	// _, err := db.conn.Exec("CREATE TABLE IF NOT EXISTS operations (id INTEGER PRIMARY KEY, operation TEXT, msgid INTEGER, data TEXT, FOREIGN KEY(msgid) REFERENCES message(id))")
-
-	// Time & Term is actually SUPER IMPORTANT HERE
-
 	_, err := db.conn.Exec("CREATE TABLE IF NOT EXISTS operations (id INTEGER PRIMARY KEY, operation TEXT, data TEXT, term INTEGER, time INTEGER DEFAULT (DATETIME('now', 'subsec')))")
 	assert.NoError(err, "Error Creating Operations Table")
 }

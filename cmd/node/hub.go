@@ -59,7 +59,6 @@ type Hub struct {
 
 func (h *Hub) ConnectConns() {
 	assert.Assert(len(h.ConnStr) > 0, len(h.ConnStr), 1, "Expected length greater than 0")
-
 	log.Println(h.Name, "Connecting to other nodes")
 
 	conns := strings.Split(h.ConnStr, ",")
@@ -68,7 +67,6 @@ func (h *Hub) ConnectConns() {
 		assert.NoError(err, "Unable to connect to other nodes")
 
 		log.Printf("Connected to %s", connStr)
-
 		h.AddConn(conn)
 	}
 }
@@ -116,7 +114,6 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		if err != nil {
 			log.Println(h.Name, "Read Err: ", err)
 
-			// Reset the Status
 			h.Lock.Lock()
 			h.removeConn(conn)
 			h.Lock.Unlock()
@@ -128,37 +125,34 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		// Piece it back together?
 		code, data := splitMsg[0], strings.Join(splitMsg[1:], SEPERATOR)
 
-		// This is basically the index / ID in db
-		log.Println(h.Name, "The mid is", h.syncMap[conn])
-
 		switch string(code) {
 		case SYNC_REQ_ASK:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_ASK")
 			log.Println("Data gotten for sync: ", data)
 
-			h.Lock.Lock()
-			has, err := h.DB.HasLog(data)
+			ops, err := db.ParseLog(data)
 			if err != nil {
-				log.Fatal("Unable to check for log")
+				log.Println(h.Name, "Unable to parse Data")
+				continue
 			}
-			h.Lock.Unlock()
+
+			has, err := h.DB.HasLog(ops)
+			if err != nil {
+				log.Println(h.Name, "Unable to check for log")
+			}
 
 			//check if I have log that was received.
 			h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			if has {
-				log.Println(h.Name, " I have")
 				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(SYNC_REQ_HAS))
 			} else {
-				log.Println(h.Name, " I no ")
 				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(SYNC_REQ_NO_HAS))
 			}
 
 		case SYNC_REQ_HAS, SYNC_REQ_NO_HAS:
 			assert.Assert(h.IsLeader == true, h.IsLeader, true, "Only Leaders can recieve SYNC_REQ_HAS")
 
-			h.Lock.Lock()
 			cpy := h.syncMap[conn]
-			h.Lock.Unlock()
 
 			switch code {
 			case SYNC_REQ_HAS:
@@ -170,19 +164,15 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				cpy.Mid = (cpy.High + cpy.Low) / 2
 			}
 
-			log.Println(h.Name, "The new mid is", h.syncMap[conn])
-			log.Println(h.Name, "The new high and low ie ", cpy.High, " - ", cpy.Low)
-
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			if cpy.Low <= cpy.High {
 				syncInitMsg := SYNC_REQ_ASK
 
-				h.Lock.Lock()
 				nextLog, err := h.DB.GetLogByID(cpy.Mid)
 				if err != nil {
-					log.Println("Unable to get Log")
+					log.Println(h.Name, "Unable to get Log")
+					continue
 				}
-				h.Lock.Unlock()
 
 				// This would just be one log
 				syncInitMsg += SEPERATOR + nextLog.String()
@@ -194,19 +184,21 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			} else { // It found the matching log
 				syncReqCommitMsg := SYNC_REQ_COMMIT
 
-				h.Lock.Lock()
 				opsArr, err := h.DB.GetLogsById(cpy.High)
 				if err != nil {
-					log.Println("Unable to get Log")
+					log.Println(h.Name, "Unable to get Log")
+					continue
 				}
-				h.Lock.Unlock()
 
 				for _, ops := range opsArr {
 					syncReqCommitMsg += SEPERATOR + ops.String()
 				}
 
-				log.Println("Before sending message: ", syncReqCommitMsg)
-				conn.WriteMessage(websocket.TextMessage, []byte(syncReqCommitMsg))
+				err = conn.WriteMessage(websocket.TextMessage, []byte(syncReqCommitMsg))
+				if err != nil {
+					log.Println(h.Name, "Unable to send message")
+				}
+
 			}
 
 			h.syncMap[conn] = cpy
@@ -214,26 +206,40 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		case SYNC_REQ_COMMIT:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_COMMIT")
 
-			log.Println(data)
 			opsStr := strings.Split(data, SEPERATOR)
 
-			h.Lock.Lock()
-			log.Println("I locked")
+			// TODO: UNDERSTAND ERROR
+			if len(opsStr) == 1 { // Meaning it was empty (no SEPERATOR)
+				log.Println("Was empty")
+				continue
+			}
+
+			var opsArr []db.Operation
+
+			// TODO
+			for _, ops := range opsStr {
+				ops, err := db.ParseLog(ops)
+				if err != nil {
+					// DO I SKIP THIS LOG?
+					log.Println("Unable to parse OPS, ", err)
+					continue
+				}
+
+				opsArr = append(opsArr, ops)
+			}
+
 			_, err = h.DB.CommitLogs(opsStr)
 			if err != nil {
 				log.Println(h.Name, "error commiting logs")
 			}
-			log.Println("I unlocked")
-			h.Lock.Unlock()
 
 		case CONSENSUS_YES:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
 
-			log.Println("I got consensus")
-
 			idx, err := strconv.Atoi(data)
 			if err != nil {
 				log.Println("Error parsing num from consensus yes: ", err)
+				continue
 			}
 
 			if idx < h.taskCompleted {
@@ -253,9 +259,9 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				// POP from taskQueue
 				operation := h.taskQueue[0]
 				h.taskQueue = h.taskQueue[1:]
+				h.Lock.Unlock()
 
 				h.DB.AddOperation(operation.operation, h.term, operation.data)
-				h.Lock.Unlock()
 			}
 
 		case CONSENSUS_NO:
@@ -280,8 +286,8 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 					// Perhaps change this to be a start of the log request??
 					err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", AM_LEADER, SEPERATOR, h.term)))
 					if err != nil {
-						log.Println("Unable to send 'Leader Ping' to nodes")
-						return
+						log.Println(h.Name, "Unable to send 'Leader Ping' to nodes: ", err)
+						continue
 					}
 				}
 
@@ -329,12 +335,12 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 				err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", CONSENSUS_YES, SEPERATOR, data)))
 				if err != nil {
-					log.Println("Error writng back to leader, new msg add: ", err)
+					log.Println(h.Name, "Error writing back to leader, NEW_MSG_ADD: ", err)
 				}
 			}
 
 		default:
-			log.Println(h.Name, "I got msg func:", string(msg))
+			log.Println(h.Name, "I got msg: ", string(msg))
 		}
 
 	}
@@ -350,7 +356,8 @@ func (h *Hub) StoreMessage(message string) {
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", NEW_MSG_ADD, SEPERATOR, h.taskStarted)))
 			if err != nil {
-				log.Println(h.Name, "Error", err)
+				log.Println(h.Name, "Error Store Message", err)
+				return
 			}
 
 		}
@@ -365,16 +372,13 @@ func (h *Hub) StoreMessage(message string) {
 		h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", NEW_MSG_ADD, SEPERATOR, message)))
 		if err != nil {
-			log.Println(h.Name, "Error", err)
+			log.Println(h.Name, "Error Store Message", err)
 		}
 	}
 }
 
 func (h *Hub) InitiateElection() {
-	if h.hasLeader != nil {
-		log.Println("I ran and and there was a leader")
-		return
-	}
+	assert.Assert(h.hasLeader == nil, h.hasLeader, nil, "Leader should be nil")
 
 	log.Println(h.Name, "Election started")
 
@@ -388,6 +392,7 @@ func (h *Hub) InitiateElection() {
 		err := conn.WriteMessage(websocket.TextMessage, []byte(ELECTION))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
+			return
 		}
 	}
 
@@ -429,15 +434,11 @@ func (h *Hub) SyncReqInit() {
 		go func(conn *websocket.Conn) {
 
 			low := 1
-			h.Lock.Lock()
 			high, err := h.DB.GetNumLogs()
 			if err != nil {
-				log.Println(h.Name, "DB Query err: ", err)
-
-				h.removeConn(conn)
-				return
+				// If this breaks, the whole thing doesn't work
+				log.Fatal(h.Name, "DB Query err: ", err)
 			}
-			h.Lock.Unlock()
 
 			h.syncMap[conn] = BinarySearch{Low: low, Mid: (low + high) / 2, High: high}
 
@@ -448,12 +449,11 @@ func (h *Hub) SyncReqInit() {
 
 			syncInitMsg := SYNC_REQ_ASK
 
-			h.Lock.Lock()
 			nextLog, err := h.DB.GetLogByID(h.syncMap[conn].Mid)
 			if err != nil {
-				log.Println("Unable to get Log")
+				log.Println(h.Name, "Unable to get Log, ", err)
+				return
 			}
-			h.Lock.Unlock()
 
 			syncInitMsg += SEPERATOR + nextLog.String()
 
