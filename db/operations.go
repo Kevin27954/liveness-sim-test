@@ -34,6 +34,7 @@ func (o Operation) String() string {
 
 func (db *DB) AddOperation(operation string, term int, message string) error {
 	_, err := db.conn.Exec("INSERT INTO operations (operation, term, data) VALUES ($1, $2, $3)", operation, term, message)
+
 	assert.NoError(err, "Error inserting operations")
 	return err
 }
@@ -42,6 +43,7 @@ func (db *DB) AddOperation(operation string, term int, message string) error {
 func (db *DB) GetLogByID(id int) (Operation, error) {
 	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1", id)
 	assert.NoError(err, "Error querying operations table by id")
+	defer row.Close()
 
 	if row.Next() {
 		ops := Operation{}
@@ -71,11 +73,11 @@ func (db *DB) GetLogByID(id int) (Operation, error) {
 
 func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
 	rows, err := db.conn.Query("SELECT * FROM operations WHERE id>$1", startIdx)
-	defer rows.Close()
 	if err != nil {
 		log.Printf("Error querying message: %s\n", err)
 		return nil, err
 	}
+	defer rows.Close()
 
 	// Push the logs as string into result
 	opsArr := []Operation{}
@@ -167,17 +169,17 @@ func (db *DB) GetNumLogs() (int, error) {
 }
 
 func (db *DB) HasLog(ops Operation) (bool, error) {
-	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1 AND operation=$2 AND term=$3", ops.Id, ops.Operation, ops.Term)
+	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1 AND operation=$2 AND term=$3 AND data=$4", ops.Id, ops.Operation, ops.Term, ops.Data)
 	if err != nil {
 		return false, err
 	}
+	defer row.Close()
 
 	return row.Next(), nil
 }
 
 // I need to look into this more
 func (db *DB) CommitLogs(opsArr []Operation) (bool, error) {
-
 	hasErr := false
 
 	tx, err := db.conn.BeginTx(context.Background(), nil)

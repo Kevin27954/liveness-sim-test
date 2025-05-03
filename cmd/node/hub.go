@@ -80,6 +80,8 @@ func (h *Hub) Run(addr int) {
 	h.syncMap = make(map[*websocket.Conn]BinarySearch)
 	h.term = -1
 
+	defer h.DB.Close()
+
 	newTicker := h.newTimerEveryMin(interval)
 	defer newTicker.Stop()
 
@@ -201,23 +203,22 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 
 			}
 
+			h.Lock.Lock()
 			h.syncMap[conn] = cpy
+			h.Lock.Unlock()
 
 		case SYNC_REQ_COMMIT:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_COMMIT")
 
 			opsStr := strings.Split(data, SEPERATOR)
 
-			// TODO: UNDERSTAND ERROR
-			if len(opsStr) == 1 { // Meaning it was empty (no SEPERATOR)
-				log.Println("Was empty")
-				continue
-			}
-
 			var opsArr []db.Operation
 
-			// TODO
 			for _, ops := range opsStr {
+				if ops == "" {
+					continue
+				}
+
 				ops, err := db.ParseLog(ops)
 				if err != nil {
 					// DO I SKIP THIS LOG?
@@ -228,7 +229,12 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				opsArr = append(opsArr, ops)
 			}
 
-			_, err = h.DB.CommitLogs(opsStr)
+			if len(opsArr) == 0 { // Meaning it was empty (no SEPERATOR)
+				log.Println(h.Name, "Commit Arr Was empty")
+				continue
+			}
+
+			_, err = h.DB.CommitLogs(opsArr)
 			if err != nil {
 				log.Println(h.Name, "error commiting logs")
 			}
@@ -323,6 +329,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			if h.term == -1 {
 				h.term = currTerm
 			}
+			h.hasVoted = false //reset
 			h.Lock.Unlock()
 
 		case NEW_MSG_ADD:
@@ -349,6 +356,10 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 // Can probably pass the code in the input params and able to deal with both
 // add msg and delete msg.
 func (h *Hub) StoreMessage(message string) {
+	if h.hasLeader == nil && !h.IsLeader {
+		log.Println("Leader is not elected yet")
+		return
+	}
 
 	if h.IsLeader {
 
@@ -440,7 +451,9 @@ func (h *Hub) SyncReqInit() {
 				log.Fatal(h.Name, "DB Query err: ", err)
 			}
 
+			h.Lock.Lock()
 			h.syncMap[conn] = BinarySearch{Low: low, Mid: (low + high) / 2, High: high}
+			h.Lock.Unlock()
 
 			if h.syncMap[conn].Mid == 0 {
 				log.Println(h.Name, " The idx is 0 meaning there is nothing?")
