@@ -117,3 +117,15 @@ func (n *Node) recieveMessage() {
 	}
 
 }
+
+func (n *Node) Close() {
+	n.Hub.Close()
+	if n.Conn != nil {
+		err := n.Conn.Close()
+		if err != nil {
+			log.Fatal("Unable to close conn, node")
+		}
+	}
+
+	log.Println("Server Connections Closed")
+}

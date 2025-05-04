@@ -36,10 +36,11 @@ type BinarySearch struct {
 }
 
 type Hub struct {
-	Name     string
-	ConnStr  string
-	DB       db.DB
-	connList []*websocket.Conn
+	Name        string
+	ConnStr     string
+	DB          db.DB
+	connList    []*websocket.Conn
+	notifyClose chan int
 
 	Lock sync.Mutex
 
@@ -79,12 +80,14 @@ func (h *Hub) Run(addr int) {
 	interval := (addr % 8000) * 5
 	h.syncMap = make(map[*websocket.Conn]BinarySearch)
 	h.term = -1
+	h.notifyClose = make(chan int)
 
 	defer h.DB.Close()
 
 	newTicker := h.newTimerEveryMin(interval)
 	defer newTicker.Stop()
 
+hubRunner:
 	for {
 		select {
 		case <-newTicker.C:
@@ -100,9 +103,14 @@ func (h *Hub) Run(addr int) {
 			} else {
 				h.InitiateElection()
 			}
+		case <-h.notifyClose:
+			break hubRunner
 
 		}
+
 	}
+
+	log.Println(h.Name, "Hub is Closed")
 }
 
 func (h *Hub) RecieveMessage(conn *websocket.Conn) {
@@ -494,4 +502,17 @@ func (h *Hub) nodeAllAgree() bool {
 	// minConsensus := len(h.connList)
 
 	return h.currentConsensus >= minConsensus
+}
+
+func (h *Hub) Close() {
+	for _, conn := range h.connList {
+		err := conn.Close()
+		if err != nil {
+			log.Fatal("Unable to close conn")
+		}
+	}
+
+	h.DB.Close()
+
+	h.notifyClose <- 1
 }

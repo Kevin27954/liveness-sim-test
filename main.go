@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	// "github.com/go-cmd/cmd"
 	"github.com/Kevin27954/liveness-sim-test/assert"
 )
 
@@ -55,7 +54,6 @@ func main() {
 			assert.NoError(err, "Unable to get Pipe")
 
 			err = startNodeCmd.Start()
-			// defer startNodeCmd.Wait()
 			assert.NoError(err, "Unable to start CMD")
 
 			scanner := bufio.NewScanner(logPipe)
@@ -68,6 +66,7 @@ func main() {
 					l.Lock()
 					logFile.Write([]byte(text + "\n"))
 					l.Unlock()
+
 				}
 			}(l)
 

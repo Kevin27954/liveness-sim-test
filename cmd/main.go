@@ -2,6 +2,7 @@ package main
 
 import (
 	// "fmt"
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -46,6 +47,8 @@ func main() {
 		serverNode.Hub.Run(addrAsInt)
 	}()
 
+	srv := &http.Server{Addr: ":" + addr}
+
 	http.HandleFunc("/ws", serverNode.Start)
 	http.HandleFunc("/internal", serverNode.Internal)
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
@@ -67,8 +70,24 @@ func main() {
 		fmt.Fprintf(w, messages)
 	})
 
+	http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
+		serverNode.Close()
+		ctx, ctxClose := context.WithTimeout(context.Background(), 10*time.Second)
+		err := srv.Shutdown(ctx)
+		if err != nil {
+			ctxClose()
+			log.Fatal("Unable to close server: ", err)
+		}
+
+		defer ctxClose()
+	})
+
 	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Hub.Name, addr)
 
-	err = http.ListenAndServe("localhost:"+addr, nil)
-	assert.NoError(err, "Unable to start server")
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		// unexpected error. port in use?
+		log.Fatalf("ListenAndServe(): %v", err)
+	}
+
+	log.Println("Server closed")
 }
