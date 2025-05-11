@@ -39,17 +39,17 @@ type Hub struct {
 	Name        string
 	ConnStr     string
 	DB          db.DB
-	ConnList    []*websocket.Conn
+	connList    []*websocket.Conn
 	notifyClose chan int
-	HeartBeat   chan int
+	heartBeat   chan int
 
 	Lock sync.Mutex
 
 	IsLeader         bool
-	HasVoted         bool
-	HasLeader        *websocket.Conn
-	CurrentConsensus int
-	Term             int
+	hasVoted         bool
+	hasLeader        *websocket.Conn
+	currentConsensus int
+	term             int
 
 	syncMap map[*websocket.Conn]BinarySearch // The thing that keeps track of binary serach idx
 
@@ -505,14 +505,14 @@ func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 	return time.NewTicker(time.Minute)
 }
 
-func (h *Hub) NodeAllAgree() bool {
+func (h *Hub) nodeAllAgree() bool {
 	minConsensus := len(h.connList) / 2
 	// minConsensus := len(h.connList)
 
 	return h.currentConsensus >= minConsensus
 }
 
-func (h *Hub) StartHeartBeat() {
+func (h *Hub) startHeartBeat() {
 
 	heartBeatTicker := time.NewTicker(3 * time.Second)
 
