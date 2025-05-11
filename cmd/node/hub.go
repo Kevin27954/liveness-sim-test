@@ -39,16 +39,17 @@ type Hub struct {
 	Name        string
 	ConnStr     string
 	DB          db.DB
-	connList    []*websocket.Conn
+	ConnList    []*websocket.Conn
 	notifyClose chan int
+	HeartBeat   chan int
 
 	Lock sync.Mutex
 
 	IsLeader         bool
-	hasVoted         bool
-	hasLeader        *websocket.Conn
-	currentConsensus int
-	term             int
+	HasVoted         bool
+	HasLeader        *websocket.Conn
+	CurrentConsensus int
+	Term             int
 
 	syncMap map[*websocket.Conn]BinarySearch // The thing that keeps track of binary serach idx
 
@@ -56,6 +57,12 @@ type Hub struct {
 	taskQueue     []Task
 	taskCompleted int
 	taskStarted   int
+}
+
+// Following the RPC I think
+type AppendEntries struct {
+	term    int
+	entries []db.Operation
 }
 
 func (h *Hub) ConnectConns() {
@@ -81,36 +88,33 @@ func (h *Hub) Run(addr int) {
 	h.syncMap = make(map[*websocket.Conn]BinarySearch)
 	h.term = -1
 	h.notifyClose = make(chan int)
+	h.heartBeat = make(chan int)
 
 	defer h.DB.Close()
 
+	// Improve the INTERVAL time, it is weird.
 	newTicker := h.newTimerEveryMin(interval)
 	defer newTicker.Stop()
 
-hubRunner:
+	// Heartbeat here?
+
 	for {
+		// Time of every 3 seconds
 		select {
 		case <-newTicker.C:
-			// Send a rquest to all conn, if conn is up and recieve a single no then we sa it is reject
-			// if all conn is yes and no err, then we proceed with request.
-
-			log.Println(h.Name, "I am leader: ", h.IsLeader)
-			if h.IsLeader {
-				// Leader Ping SYNC REQ
-				h.SyncReqInit()
-			} else if h.hasLeader != nil {
-				// Idk what yet
-			} else {
+			// If this runs, that means leader dead, elect a new self as a one.
+			if !h.IsLeader {
 				h.InitiateElection()
 			}
+
+		case <-h.heartBeat:
+			newTicker.Reset(10 * time.Second)
+			log.Println(h.Name, "Heartbeat received")
 		case <-h.notifyClose:
-			break hubRunner
-
+			log.Println(h.Name, "Hub is Closed")
+			return
 		}
-
 	}
-
-	log.Println(h.Name, "Hub is Closed")
 }
 
 func (h *Hub) RecieveMessage(conn *websocket.Conn) {
@@ -136,6 +140,10 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		code, data := splitMsg[0], strings.Join(splitMsg[1:], SEPERATOR)
 
 		switch string(code) {
+		case HEARTBEAT:
+			// send heartbeat
+			h.heartBeat <- 1
+
 		case SYNC_REQ_ASK:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_ASK")
 			log.Println("Data gotten for sync: ", data)
@@ -295,15 +303,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				h.currentConsensus = 0 // Reset
 				h.Lock.Unlock()
 
-				for _, conn := range h.connList {
-					conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-					// Perhaps change this to be a start of the log request??
-					err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", AM_LEADER, SEPERATOR, h.term)))
-					if err != nil {
-						log.Println(h.Name, "Unable to send 'Leader Ping' to nodes: ", err)
-						continue
-					}
-				}
+				go h.startHeartBeat()
 
 				log.Println(h.Name, "I became leader")
 			}
@@ -311,19 +311,27 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		case ELECTION:
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 
-			if h.IsLeader {
-				// If election is send to leader node on accident
-				conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", AM_LEADER, SEPERATOR, h.term)))
-			} else if !h.hasVoted {
-				if h.hasLeader != nil {
-					conn.WriteMessage(websocket.TextMessage, []byte(VOTE_NO))
-				} else {
-					conn.WriteMessage(websocket.TextMessage, []byte(VOTE_YES))
-				}
+			newTerm, err := strconv.Atoi(data)
+			assert.NoError(err, "Unable to convert term from string to int from AM_LEADER ping")
 
+			if newTerm > h.term {
+				h.Lock.Lock()
+				h.IsLeader = false
+				h.hasVoted = false
+				h.term = newTerm
+				h.hasLeader = nil
+				h.Lock.Unlock()
+			}
+
+			if !h.hasVoted && !h.IsLeader {
+				err := conn.WriteMessage(websocket.TextMessage, []byte(VOTE_YES))
+				if err != nil {
+					log.Println(h.Name, "Unable to send VOTE to election")
+					continue
+				}
 				h.Lock.Lock()
 				h.hasVoted = true
-				h.term += 1
+				h.hasLeader = conn
 				h.Lock.Unlock()
 			}
 
@@ -408,7 +416,7 @@ func (h *Hub) InitiateElection() {
 
 	for _, conn := range h.connList {
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := conn.WriteMessage(websocket.TextMessage, []byte(ELECTION))
+		err := conn.WriteMessage(websocket.TextMessage, fmt.Appendf([]byte(""), "%s%s%d", ELECTION, SEPERATOR, h.term))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
 			return
@@ -497,11 +505,47 @@ func (h *Hub) newTimerEveryMin(sec int) *time.Ticker {
 	return time.NewTicker(time.Minute)
 }
 
-func (h *Hub) nodeAllAgree() bool {
+func (h *Hub) NodeAllAgree() bool {
 	minConsensus := len(h.connList) / 2
 	// minConsensus := len(h.connList)
 
 	return h.currentConsensus >= minConsensus
+}
+
+func (h *Hub) StartHeartBeat() {
+
+	heartBeatTicker := time.NewTicker(3 * time.Second)
+
+	for {
+		if !h.IsLeader {
+			return
+		}
+
+		select {
+		case <-heartBeatTicker.C:
+			for _, conn := range h.connList {
+				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+				err := conn.WriteMessage(websocket.TextMessage, []byte(HEARTBEAT))
+				if err != nil {
+					log.Println(h.Name, "Unable to send heartbeat: ", err)
+				}
+			}
+		}
+	}
+}
+
+func (h *Hub) WriteMessageToConn(conn *websocket.Conn, msg []byte) error {
+	err := conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+	if err != nil {
+		return err
+	}
+
+	err = conn.WriteMessage(websocket.TextMessage, msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (h *Hub) Close() {

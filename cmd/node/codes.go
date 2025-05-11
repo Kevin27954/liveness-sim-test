@@ -8,9 +8,10 @@ const (
 
 	AM_LEADER = "5"
 
-	ELECTION = "10"
-	VOTE_YES = "11"
-	VOTE_NO  = "12"
+	HEARTBEAT = "9"
+	ELECTION  = "10"
+	VOTE_YES  = "11"
+	VOTE_NO   = "12"
 
 	// Operation Codes Start After at 20
 
