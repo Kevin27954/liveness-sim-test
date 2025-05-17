@@ -11,13 +11,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const WRITEWAIT = 10 * time.Second
+const (
+	WRITEWAIT = 10 * time.Second
+	SEPERATOR = "≡" // A Hambuger menu looking thing
+)
 
 type Transponder struct {
 	connList []*websocket.Conn
 	from     int // Corresponds to the RAFT Node it is reference to.
 
-	onRecv func(message p.MessageEvent)
+	onRecv func(message any)
 }
 
 func Init(from int, size int) Transponder {
@@ -91,7 +94,7 @@ func (t *Transponder) WriteTo(id int, msg []byte) {
 
 }
 
-func (t *Transponder) OnRecv(action func(message p.MessageEvent)) {
+func (t *Transponder) OnRecv(action func(message any)) {
 	t.onRecv = action
 }
 
@@ -100,4 +103,16 @@ func (t *Transponder) AddConn(conn *websocket.Conn, id int) {
 	t.connList[id] = conn
 
 	go t.listen(conn)
+}
+
+func (t *Transponder) CreateMsg(msgs ...any) []byte {
+	msgByte := []byte("")
+	for i, msg := range msgs {
+		msgByte = fmt.Append(msgByte, msg)
+		if i != len(msgs)-1 {
+			msgByte = fmt.Append(msgByte, SEPERATOR)
+		}
+	}
+
+	return msgByte
 }

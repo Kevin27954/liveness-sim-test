@@ -10,6 +10,7 @@ import (
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
 	"github.com/Kevin27954/liveness-sim-test/db"
+	p "github.com/Kevin27954/liveness-sim-test/pkg"
 	"github.com/gorilla/websocket"
 )
 
@@ -62,7 +63,7 @@ type Hub struct {
 // Following the RPC I think
 type AppendEntries struct {
 	term    int
-	entries []db.Operation
+	entries []p.Operation
 }
 
 func (h *Hub) ConnectConns() {
@@ -140,15 +141,15 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 		code, data := splitMsg[0], strings.Join(splitMsg[1:], SEPERATOR)
 
 		switch string(code) {
-		case HEARTBEAT:
+		case p.HEARTBEAT:
 			// send heartbeat
 			h.heartBeat <- 1
 
-		case SYNC_REQ_ASK:
+		case p.SYNC_REQ_ASK:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_ASK")
 			log.Println("Data gotten for sync: ", data)
 
-			ops, err := db.ParseLog(data)
+			ops, err := p.ParseLog(data)
 			if err != nil {
 				log.Println(h.Name, "Unable to parse Data")
 				continue
@@ -162,29 +163,29 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			//check if I have log that was received.
 			h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			if has {
-				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(SYNC_REQ_HAS))
+				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(p.SYNC_REQ_HAS))
 			} else {
-				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(SYNC_REQ_NO_HAS))
+				h.hasLeader.WriteMessage(websocket.TextMessage, []byte(p.SYNC_REQ_NO_HAS))
 			}
 
-		case SYNC_REQ_HAS, SYNC_REQ_NO_HAS:
+		case p.SYNC_REQ_HAS, p.SYNC_REQ_NO_HAS:
 			assert.Assert(h.IsLeader == true, h.IsLeader, true, "Only Leaders can recieve SYNC_REQ_HAS")
 
 			cpy := h.syncMap[conn]
 
 			switch code {
-			case SYNC_REQ_HAS:
+			case p.SYNC_REQ_HAS:
 				cpy.Low = cpy.Mid + 1
 				cpy.Mid = (cpy.High + cpy.Low) / 2
 
-			case SYNC_REQ_NO_HAS:
+			case p.SYNC_REQ_NO_HAS:
 				cpy.High = cpy.Mid - 1
 				cpy.Mid = (cpy.High + cpy.Low) / 2
 			}
 
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 			if cpy.Low <= cpy.High {
-				syncInitMsg := SYNC_REQ_ASK
+				syncInitMsg := p.SYNC_REQ_ASK
 
 				nextLog, err := h.DB.GetLogByID(cpy.Mid)
 				if err != nil {
@@ -200,7 +201,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 					log.Println(h.Name, "Sync Init", err)
 				}
 			} else { // It found the matching log
-				syncReqCommitMsg := SYNC_REQ_COMMIT
+				syncReqCommitMsg := p.SYNC_REQ_COMMIT
 
 				opsArr, err := h.DB.GetLogsById(cpy.High)
 				if err != nil {
@@ -223,19 +224,19 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			h.syncMap[conn] = cpy
 			h.Lock.Unlock()
 
-		case SYNC_REQ_COMMIT:
+		case p.SYNC_REQ_COMMIT:
 			assert.Assert(h.IsLeader == false, h.IsLeader, false, "Only NON Leaders can recieve SYNC_REQ_COMMIT")
 
 			opsStr := strings.Split(data, SEPERATOR)
 
-			var opsArr []db.Operation
+			var opsArr []p.Operation
 
 			for _, ops := range opsStr {
 				if ops == "" {
 					continue
 				}
 
-				ops, err := db.ParseLog(ops)
+				ops, err := p.ParseLog(ops)
 				if err != nil {
 					// DO I SKIP THIS LOG?
 					log.Println("Unable to parse OPS, ", err)
@@ -255,7 +256,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				log.Println(h.Name, "error commiting logs")
 			}
 
-		case CONSENSUS_YES:
+		case p.CONSENSUS_YES:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
 
 			idx, err := strconv.Atoi(data)
@@ -286,12 +287,12 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				h.DB.AddOperation(operation.operation, h.term, operation.data)
 			}
 
-		case CONSENSUS_NO:
+		case p.CONSENSUS_NO:
 			assert.Assert(true, h.IsLeader, true, "Only Leaders can recieve votes")
 
-		case VOTE_NO:
+		case p.VOTE_NO:
 			// Nothing happens
-		case VOTE_YES:
+		case p.VOTE_YES:
 
 			if !h.nodeAllAgree() && !h.IsLeader {
 				h.Lock.Lock()
@@ -308,7 +309,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				log.Println(h.Name, "I became leader")
 			}
 
-		case ELECTION:
+		case p.ELECTION:
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
 
 			newTerm, err := strconv.Atoi(data)
@@ -324,7 +325,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			}
 
 			if !h.hasVoted && !h.IsLeader {
-				err := conn.WriteMessage(websocket.TextMessage, []byte(VOTE_YES))
+				err := conn.WriteMessage(websocket.TextMessage, []byte(p.VOTE_YES))
 				if err != nil {
 					log.Println(h.Name, "Unable to send VOTE to election")
 					continue
@@ -335,7 +336,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 				h.Lock.Unlock()
 			}
 
-		case AM_LEADER:
+		case p.AM_LEADER:
 
 			currTerm, err := strconv.Atoi(data)
 			assert.NoError(err, "Unable to convert term from string to int from AM_LEADER ping")
@@ -348,7 +349,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			h.hasVoted = false //reset
 			h.Lock.Unlock()
 
-		case NEW_MSG_ADD:
+		case p.NEW_MSG_ADD:
 
 			if h.IsLeader {
 				h.StoreMessage(data)
@@ -356,7 +357,7 @@ func (h *Hub) RecieveMessage(conn *websocket.Conn) {
 			} else {
 				// Data here is the taskStarted number
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-				err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", CONSENSUS_YES, SEPERATOR, data)))
+				err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", p.CONSENSUS_YES, SEPERATOR, data)))
 				if err != nil {
 					log.Println(h.Name, "Error writing back to leader, NEW_MSG_ADD: ", err)
 				}
@@ -381,7 +382,7 @@ func (h *Hub) StoreMessage(message string) {
 
 		for _, conn := range h.connList {
 			conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-			err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", NEW_MSG_ADD, SEPERATOR, h.taskStarted)))
+			err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%d", p.NEW_MSG_ADD, SEPERATOR, h.taskStarted)))
 			if err != nil {
 				log.Println(h.Name, "Error Store Message", err)
 				return
@@ -391,13 +392,13 @@ func (h *Hub) StoreMessage(message string) {
 
 		h.Lock.Lock()
 		h.taskStarted += 1
-		h.taskQueue = append(h.taskQueue, Task{operation: NEW_MSG_ADD, data: message})
+		h.taskQueue = append(h.taskQueue, Task{operation: p.NEW_MSG_ADD, data: message})
 		h.Lock.Unlock()
 
 	} else {
 		//sends conn to leader
 		h.hasLeader.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", NEW_MSG_ADD, SEPERATOR, message)))
+		err := h.hasLeader.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("%s%s%s", p.NEW_MSG_ADD, SEPERATOR, message)))
 		if err != nil {
 			log.Println(h.Name, "Error Store Message", err)
 		}
@@ -416,7 +417,7 @@ func (h *Hub) InitiateElection() {
 
 	for _, conn := range h.connList {
 		conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-		err := conn.WriteMessage(websocket.TextMessage, fmt.Appendf([]byte(""), "%s%s%d", ELECTION, SEPERATOR, h.term))
+		err := conn.WriteMessage(websocket.TextMessage, fmt.Appendf([]byte(""), "%s%s%d", p.ELECTION, SEPERATOR, h.term))
 		if err != nil {
 			log.Println(h.Name, "Error", err)
 			return
@@ -476,7 +477,7 @@ func (h *Hub) SyncReqInit() {
 				return
 			}
 
-			syncInitMsg := SYNC_REQ_ASK
+			syncInitMsg := p.SYNC_REQ_ASK
 
 			nextLog, err := h.DB.GetLogByID(h.syncMap[conn].Mid)
 			if err != nil {
@@ -525,7 +526,7 @@ func (h *Hub) startHeartBeat() {
 		case <-heartBeatTicker.C:
 			for _, conn := range h.connList {
 				conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-				err := conn.WriteMessage(websocket.TextMessage, []byte(HEARTBEAT))
+				err := conn.WriteMessage(websocket.TextMessage, []byte(p.HEARTBEAT))
 				if err != nil {
 					log.Println(h.Name, "Unable to send heartbeat: ", err)
 				}

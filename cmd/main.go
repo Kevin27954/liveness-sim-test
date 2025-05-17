@@ -41,9 +41,13 @@ func main() {
 	// Init all things
 	sqlDb := db.Init(name)
 	raftState := r.Init(name, id, sqlDb, portList, size)
-	serverNode := node.Node{Conn: nil, Status: 0, Hub: node.Hub{}}
+	serverNode := node.Node{Conn: nil, Status: 0, Raft: raftState}
 
 	srv := &http.Server{Addr: ":" + addr}
+
+	http.HandleFunc("/leader", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s", raftState.Info())
+	})
 
 	http.HandleFunc("/ws", serverNode.Start)
 	http.HandleFunc("/internal/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -65,15 +69,18 @@ func main() {
 		raftState.AddConn(conn, id)
 	})
 
-	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/gets", func(w http.ResponseWriter, r *http.Request) {
 		messages, err := serverNode.GetMessages()
 		if err != nil {
 			http.Error(w, "Error getting messages", http.StatusInternalServerError)
 			return
 		}
 
+		log.Println("TESTSEING")
+
 		fmt.Fprintf(w, messages)
 	})
+
 	http.HandleFunc("/get/logs", func(w http.ResponseWriter, r *http.Request) {
 		messages, err := serverNode.GetLogs()
 		if err != nil {
@@ -96,7 +103,7 @@ func main() {
 		defer ctxClose()
 	})
 
-	log.Printf("Starting %s on \"localhost:%s\"", serverNode.Hub.Name, addr)
+	log.Printf("Starting on \"http://localhost:%s\"", addr)
 
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		// unexpected error. port in use?

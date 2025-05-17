@@ -20,11 +20,16 @@ func Init() TaskManager {
 	return TaskManager{
 		taskQueue:    make(map[int]int),
 		taskComplete: 0,
-		taskStarted:  0,
+		taskStarted:  1,
 	}
 }
 
-func (t *TaskManager) AddTask(msg p.MessageEvent) int {
+func (t *TaskManager) AddTask(event string) int {
+	if event == p.ELECTION {
+		t.taskQueue[1] = 0
+		return 1
+	}
+
 	t.taskStarted += 1
 	// t.taskQueue = append(t.taskQueue, Task{msg: msg, taskId: t.taskStarted, votes: 0})
 	t.taskQueue[t.taskStarted] = 0
@@ -32,7 +37,7 @@ func (t *TaskManager) AddTask(msg p.MessageEvent) int {
 }
 
 // Returns true if minimum consensus reached. Otherwise false
-func (t *TaskManager) VoteOnTask(taskId int) bool {
+func (t *TaskManager) VoteOnTask(taskId int, vote bool) bool {
 	t.taskQueue[taskId] += 1
 
 	if t.taskQueue[taskId] >= 0 {

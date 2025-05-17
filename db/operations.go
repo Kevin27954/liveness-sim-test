@@ -2,35 +2,13 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
+	p "github.com/Kevin27954/liveness-sim-test/pkg"
 	_ "github.com/mattn/go-sqlite3"
 )
-
-const SEPERATOR = "◊"
-
-type Operation struct {
-	Id        int
-	Operation string
-	Time      time.Time
-	Term      int
-	Data      string
-}
-
-func (o Operation) String() string {
-	layout := "2006-01-02 15:04:05.999999999 -0700 MST" // format used for time
-
-	if o.Data == "" && o.Operation == "" {
-		return "Empty"
-	}
-
-	return fmt.Sprintf("%d%s%s%s%s%s%d%s%s", o.Id, SEPERATOR, o.Operation, SEPERATOR, o.Time.Format(layout), SEPERATOR, o.Term, SEPERATOR, o.Data)
-}
 
 func (db *DB) AddOperation(operation string, term int, message string) error {
 	_, err := db.conn.Exec("INSERT INTO operations (operation, term, data) VALUES ($1, $2, $3)", operation, term, message)
@@ -40,38 +18,38 @@ func (db *DB) AddOperation(operation string, term int, message string) error {
 }
 
 // ID is technically the index
-func (db *DB) GetLogByID(id int) (Operation, error) {
+func (db *DB) GetLogByID(id int) (p.Operation, error) {
 	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1", id)
 	assert.NoError(err, "Error querying operations table by id")
 	defer row.Close()
 
 	if row.Next() {
-		ops := Operation{}
+		ops := p.Operation{}
 		var timeStr string
 		err := row.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &timeStr)
 		if err != nil {
-			log.Println("Unable to scan into Operation ", err)
-			return Operation{}, err
+			log.Println("Unable to scan into p.Operation ", err)
+			return p.Operation{}, err
 		}
 
 		layout := "2006-01-02 15:04:05.000"
 		ops.Time, err = time.Parse(layout, timeStr)
 		if err != nil {
 			log.Printf("Error scanning logs: %s\n", err)
-			return Operation{}, err
+			return p.Operation{}, err
 		}
 
 		return ops, nil
 	} else {
 		if row.Err() != nil {
-			return Operation{}, err
+			return p.Operation{}, err
 		}
 
-		return Operation{}, nil
+		return p.Operation{}, nil
 	}
 }
 
-func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
+func (db *DB) GetLogsById(startIdx int) ([]p.Operation, error) {
 	rows, err := db.conn.Query("SELECT * FROM operations WHERE id>$1", startIdx)
 	if err != nil {
 		log.Printf("Error querying message: %s\n", err)
@@ -80,14 +58,14 @@ func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
 	defer rows.Close()
 
 	// Push the logs as string into result
-	opsArr := []Operation{}
+	opsArr := []p.Operation{}
 	for rows.Next() {
-		ops := Operation{}
+		ops := p.Operation{}
 		var timeStr string
 		err := rows.Scan(&ops.Id, &ops.Operation, &ops.Data, &ops.Term, &timeStr)
 		if err != nil {
-			log.Println("Unable to scan into Operation, ", err)
-			return []Operation{}, err
+			log.Println("Unable to scan into p.Operation, ", err)
+			return []p.Operation{}, err
 		}
 
 		layout := "2006-01-02 15:04:05.000"
@@ -101,14 +79,14 @@ func (db *DB) GetLogsById(startIdx int) ([]Operation, error) {
 	}
 
 	if rows.Err() != nil {
-		return []Operation{}, err
+		return []p.Operation{}, err
 	}
 
 	return opsArr, nil
 }
 
 // Might be pointless. Use getlogsbyid
-func (db *DB) GetLogs() ([]Operation, error) {
+func (db *DB) GetLogs() ([]p.Operation, error) {
 	rows, err := db.conn.Query("SELECT * FROM operations")
 	defer rows.Close()
 	if err != nil {
@@ -116,10 +94,10 @@ func (db *DB) GetLogs() ([]Operation, error) {
 		return nil, err
 	}
 
-	var operations []Operation
+	var operations []p.Operation
 
 	for rows.Next() {
-		var op Operation
+		var op p.Operation
 		var timeStr string
 		err := rows.Scan(&op.Id, &op.Operation, &op.Data, &op.Term, &timeStr)
 		if err != nil {
@@ -168,7 +146,7 @@ func (db *DB) GetNumLogs() (int, error) {
 	}
 }
 
-func (db *DB) HasLog(ops Operation) (bool, error) {
+func (db *DB) HasLog(ops p.Operation) (bool, error) {
 	row, err := db.conn.Query("SELECT * FROM operations WHERE id=$1 AND operation=$2 AND term=$3 AND data=$4", ops.Id, ops.Operation, ops.Term, ops.Data)
 	if err != nil {
 		return false, err
@@ -179,7 +157,7 @@ func (db *DB) HasLog(ops Operation) (bool, error) {
 }
 
 // I need to look into this more
-func (db *DB) CommitLogs(opsArr []Operation) (bool, error) {
+func (db *DB) CommitLogs(opsArr []p.Operation) (bool, error) {
 	hasErr := false
 
 	tx, err := db.conn.BeginTx(context.Background(), nil)
@@ -217,30 +195,4 @@ func (db *DB) CommitLogs(opsArr []Operation) (bool, error) {
 	}
 
 	return true, nil
-}
-
-// Helper Function to Parse Logs from String to Log
-func ParseLog(logStr string) (Operation, error) {
-	if logStr == "" {
-		return Operation{}, nil
-	}
-
-	data := strings.Split(logStr, SEPERATOR)
-	op := Operation{}
-	var err error
-
-	format := "2006-01-02 15:04:05.999999999 -0700 MST"
-
-	op.Id, err = strconv.Atoi(data[0])
-	op.Operation = data[1]
-	op.Time, err = time.Parse(format, data[2])
-	op.Term, err = strconv.Atoi(data[3])
-	op.Data = strings.Join(data[3:], "*")
-
-	if err != nil {
-		log.Println("Unable to convert string to Operation. Check Id, Time, and Term value: ", err, "\n", logStr)
-		return Operation{}, err
-	}
-
-	return op, nil
 }

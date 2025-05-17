@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
+	"github.com/Kevin27954/liveness-sim-test/pkg"
+	"github.com/Kevin27954/liveness-sim-test/pkg/raft"
 	"github.com/gorilla/websocket"
 )
 
@@ -23,7 +25,7 @@ var upgrader = websocket.Upgrader{}
 type Node struct {
 	Conn   *websocket.Conn
 	Status int // 1 = Leader, 0 = member
-	Hub    Hub
+	Raft   *raft.Raft
 }
 
 func (n *Node) Start(w http.ResponseWriter, r *http.Request) {
@@ -47,22 +49,11 @@ func (n *Node) Start(w http.ResponseWriter, r *http.Request) {
 }
 
 func (n *Node) Internal(w http.ResponseWriter, r *http.Request) {
-	// Checks for internal node key in prod if there is a prod.
-
-	upgrader.CheckOrigin = func(r *http.Request) bool {
-		// In production, make this your origin (URL to your server)
-		return true
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	assert.NoError(err, "Unable to upgrade internal nodes socket conn")
-
-	n.Hub.AddConn(conn)
-	// n.Hub.Pong(conn)
+	// Ignore for now, this used to be for connecting internal nodes
 }
 
 func (n *Node) GetMessages() (string, error) {
-	messages, err := n.Hub.DB.GetMessages()
+	messages, err := n.Raft.Db.GetMessages()
 	if err != nil {
 		return "", err
 	}
@@ -77,7 +68,7 @@ func (n *Node) GetMessages() (string, error) {
 }
 
 func (n *Node) GetLogs() (string, error) {
-	logs, err := n.Hub.DB.GetLogs()
+	logs, err := n.Raft.Db.GetLogs()
 	if err != nil {
 		return "", err
 	}
@@ -110,16 +101,17 @@ func (n *Node) recieveMessage() {
 
 		assert.Assert(len(message) <= 512, len(message), 512, "greater than 512 bytes")
 
-		n.Hub.StoreMessage(string(message))
+		// n.Hub.StoreMessage(string(message))
 		// n.Hub.DB.AddMessage(string(message))
 
+		n.Raft.SendNewOp(pkg.NEW_MSG_ADD, string(message))
 		log.Printf("Recieved: %s", message)
 	}
 
 }
 
 func (n *Node) Close() {
-	n.Hub.Close()
+	// n.Hub.Close()
 	if n.Conn != nil {
 		err := n.Conn.Close()
 		if err != nil {
