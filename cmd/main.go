@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "fmt"
 	"context"
 	"fmt"
 	"log"
@@ -11,46 +10,61 @@ import (
 	"strconv"
 	"time"
 
-	// "time"
-
 	"github.com/Kevin27954/liveness-sim-test/assert"
 	"github.com/Kevin27954/liveness-sim-test/cmd/node"
 	"github.com/Kevin27954/liveness-sim-test/db"
+	r "github.com/Kevin27954/liveness-sim-test/pkg/raft"
+	"github.com/gorilla/websocket"
 )
-
-func createNode(num int, connList string) node.Node {
-	name := "node" + strconv.Itoa(num)
-	sql_db := db.Init(name)
-
-	return node.Node{Conn: nil, Status: 0, Hub: node.Hub{ConnStr: connList, DB: sql_db, Name: name}}
-}
 
 func main() {
 	log.SetOutput(os.Stdout)
 	rand.New(rand.NewSource(69))
 
 	args := os.Args[1:]
-
 	addr := args[0]
 
-	var connList string
+	var upgrader = websocket.Upgrader{}
+
+	var portList string
 	if len(args) > 1 {
-		connList = args[1]
+		portList = args[1]
 	}
+
+	size := 3
 
 	addrAsInt, err := strconv.Atoi(addr)
 	assert.NoError(err, "Unable to covert to int")
-	serverNode := createNode(addrAsInt%8000, connList)
+	id := addrAsInt % 8000
+	name := "node" + strconv.Itoa(id)
 
-	go func() {
-		time.Sleep(10 * time.Second)
-		serverNode.Hub.Run(addrAsInt)
-	}()
+	// Init all things
+	sqlDb := db.Init(name)
+	raftState := r.Init(name, id, sqlDb, portList, size)
+	serverNode := node.Node{Conn: nil, Status: 0, Hub: node.Hub{}}
 
 	srv := &http.Server{Addr: ":" + addr}
 
 	http.HandleFunc("/ws", serverNode.Start)
-	http.HandleFunc("/internal", serverNode.Internal)
+	http.HandleFunc("/internal/{id}", func(w http.ResponseWriter, r *http.Request) {
+		// Checks for internal node key in prod if there is a prod.
+		upgrader.CheckOrigin = func(r *http.Request) bool {
+			// In production, make this your origin (URL to your server)
+			return true
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		assert.NoError(err, "Unable to upgrade internal nodes socket conn")
+
+		urlId := r.PathValue("id")
+		id, err := strconv.Atoi(urlId)
+		if err != nil {
+			log.Fatal("Unable to get nodeID")
+		}
+
+		raftState.AddConn(conn, id)
+	})
+
 	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
 		messages, err := serverNode.GetMessages()
 		if err != nil {

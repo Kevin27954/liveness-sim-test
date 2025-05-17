@@ -15,10 +15,10 @@ import (
 
 func main() {
 
-	protocol := "ws://"
-	domain := "localhost"
+	// protocol := "ws://"
+	// domain := "localhost"
+	// endpoint := "internal"
 	startingPort := 8000
-	endpoint := "internal"
 
 	numNodes := 3
 	var wg sync.WaitGroup
@@ -30,7 +30,8 @@ func main() {
 	for i := 0; i < numNodes; i++ {
 		var urlList []string
 		for j := i + 1; j < numNodes; j++ {
-			url := fmt.Sprintf("%s%s:%d/%s", protocol, domain, startingPort+j, endpoint)
+			// url := fmt.Sprintf("%s%s:%d/%s", protocol, domain, startingPort+j, endpoint)
+			url := fmt.Sprintf("%d", startingPort+j)
 			urlList = append(urlList, url)
 		}
 
