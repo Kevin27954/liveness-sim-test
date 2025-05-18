@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/Kevin27954/liveness-sim-test/assert"
 	"github.com/Kevin27954/liveness-sim-test/pkg"
@@ -49,13 +50,28 @@ func (n *Node) Start(w http.ResponseWriter, r *http.Request) {
 }
 
 func (n *Node) Internal(w http.ResponseWriter, r *http.Request) {
-	// Ignore for now, this used to be for connecting internal nodes
+	// Checks for internal node key in prod if there is a prod.
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		// In production, make this your origin (URL to your server)
+		return true
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	assert.NoError(err, "Unable to upgrade internal nodes socket conn")
+
+	urlId := r.PathValue("id")
+	id, err := strconv.Atoi(urlId)
+	if err != nil {
+		log.Fatal("Unable to get nodeID")
+	}
+
+	n.Raft.AddConn(conn, id)
 }
 
-func (n *Node) GetMessages() (string, error) {
+func (n *Node) GetMessages(w http.ResponseWriter, r *http.Request) {
 	messages, err := n.Raft.Db.GetMessages()
 	if err != nil {
-		return "", err
+		http.Error(w, "Unable to get logs", http.StatusInternalServerError)
 	}
 
 	var allMessages string
@@ -64,13 +80,13 @@ func (n *Node) GetMessages() (string, error) {
 		allMessages += message.Msg + "\n"
 	}
 
-	return allMessages, nil
+	fmt.Fprintf(w, allMessages)
 }
 
-func (n *Node) GetLogs() (string, error) {
+func (n *Node) GetLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := n.Raft.Db.GetLogs()
 	if err != nil {
-		return "", err
+		http.Error(w, "Unable to get logs", http.StatusInternalServerError)
 	}
 
 	var allLogs string
@@ -78,7 +94,7 @@ func (n *Node) GetLogs() (string, error) {
 		allLogs += fmt.Sprintf("%s - %d - %s - %s\n", log.Time, log.Id, log.Operation, log.Data)
 	}
 
-	return allLogs, nil
+	fmt.Fprintf(w, allLogs)
 }
 
 // There will no writebacks for now. I only want to read.
@@ -100,9 +116,6 @@ func (n *Node) recieveMessage() {
 		}
 
 		assert.Assert(len(message) <= 512, len(message), 512, "greater than 512 bytes")
-
-		// n.Hub.StoreMessage(string(message))
-		// n.Hub.DB.AddMessage(string(message))
 
 		n.Raft.SendNewOp(pkg.NEW_MSG_ADD, string(message))
 		log.Printf("Recieved: %s", message)

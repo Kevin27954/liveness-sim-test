@@ -14,7 +14,6 @@ import (
 	"github.com/Kevin27954/liveness-sim-test/cmd/node"
 	"github.com/Kevin27954/liveness-sim-test/db"
 	r "github.com/Kevin27954/liveness-sim-test/pkg/raft"
-	"github.com/gorilla/websocket"
 )
 
 func main() {
@@ -24,14 +23,12 @@ func main() {
 	args := os.Args[1:]
 	addr := args[0]
 
-	var upgrader = websocket.Upgrader{}
-
 	var portList string
 	if len(args) > 1 {
 		portList = args[1]
 	}
 
-	size := 3
+	size := 3 // Change this to either recieve from args or dynamically figure it out
 
 	addrAsInt, err := strconv.Atoi(addr)
 	assert.NoError(err, "Unable to covert to int")
@@ -50,46 +47,9 @@ func main() {
 	})
 
 	http.HandleFunc("/ws", serverNode.Start)
-	http.HandleFunc("/internal/{id}", func(w http.ResponseWriter, r *http.Request) {
-		// Checks for internal node key in prod if there is a prod.
-		upgrader.CheckOrigin = func(r *http.Request) bool {
-			// In production, make this your origin (URL to your server)
-			return true
-		}
-
-		conn, err := upgrader.Upgrade(w, r, nil)
-		assert.NoError(err, "Unable to upgrade internal nodes socket conn")
-
-		urlId := r.PathValue("id")
-		id, err := strconv.Atoi(urlId)
-		if err != nil {
-			log.Fatal("Unable to get nodeID")
-		}
-
-		raftState.AddConn(conn, id)
-	})
-
-	http.HandleFunc("/gets", func(w http.ResponseWriter, r *http.Request) {
-		messages, err := serverNode.GetMessages()
-		if err != nil {
-			http.Error(w, "Error getting messages", http.StatusInternalServerError)
-			return
-		}
-
-		log.Println("TESTSEING")
-
-		fmt.Fprintf(w, messages)
-	})
-
-	http.HandleFunc("/get/logs", func(w http.ResponseWriter, r *http.Request) {
-		messages, err := serverNode.GetLogs()
-		if err != nil {
-			http.Error(w, "Error getting messages", http.StatusInternalServerError)
-			return
-		}
-
-		fmt.Fprintf(w, messages)
-	})
+	http.HandleFunc("/internal/{id}", serverNode.Internal)
+	http.HandleFunc("/get/logs", serverNode.GetLogs)
+	http.HandleFunc("/gets", serverNode.GetMessages)
 
 	http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
 		serverNode.Close()
@@ -106,7 +66,6 @@ func main() {
 	log.Printf("Starting on \"http://localhost:%s\"", addr)
 
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-		// unexpected error. port in use?
 		log.Fatalf("ListenAndServe(): %v", err)
 	}
 
