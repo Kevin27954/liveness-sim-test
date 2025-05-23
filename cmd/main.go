@@ -42,14 +42,11 @@ func main() {
 
 	srv := &http.Server{Addr: ":" + addr}
 
-	http.HandleFunc("/leader", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s", raftState.Info())
-	})
-
 	http.HandleFunc("/ws", serverNode.Start)
 	http.HandleFunc("/internal/{id}", serverNode.Internal)
 	http.HandleFunc("/get/logs", serverNode.GetLogs)
 	http.HandleFunc("/gets", serverNode.GetMessages)
+	http.HandleFunc("/raft", raftState.GetState)
 
 	http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
 		serverNode.Close()
@@ -61,6 +58,8 @@ func main() {
 		}
 
 		defer ctxClose()
+
+		fmt.Fprintf(w, "Closing")
 	})
 
 	log.Printf("Starting on \"http://localhost:%s\"", addr)

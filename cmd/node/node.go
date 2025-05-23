@@ -124,7 +124,7 @@ func (n *Node) recieveMessage() {
 }
 
 func (n *Node) Close() {
-	// n.Hub.Close()
+	n.Raft.Quit()
 	if n.Conn != nil {
 		err := n.Conn.Close()
 		if err != nil {

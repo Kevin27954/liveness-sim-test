@@ -26,7 +26,6 @@ type Transponder struct {
 func Init(from int, size int) Transponder {
 	t := Transponder{connList: make([]*websocket.Conn, size), from: from}
 
-	// not including self
 	return t
 }
 
@@ -54,9 +53,10 @@ func (t *Transponder) StartConns(portList string) {
 
 func (t *Transponder) listen(conn *websocket.Conn) {
 	for {
+		// Closes upon having other program closing also.
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			log.Fatal("Unable to read message")
+			log.Fatal(t.from, "Unable to read message: ", err)
 		}
 
 		t.onRecv(p.Init(string(msg)))
@@ -115,4 +115,25 @@ func (t *Transponder) CreateMsg(msgs ...any) []byte {
 	}
 
 	return msgByte
+}
+
+func (t *Transponder) GetTotalConns() int {
+	return len(t.connList)
+}
+
+func (t *Transponder) String() string {
+	var sb strings.Builder
+
+	sb.WriteString("  Connection List: [")
+	for k := range t.connList {
+		sb.WriteString("\n")
+		if t.connList[k] != nil {
+			sb.WriteString(fmt.Sprintf("    Connected to node%d: true", k))
+		} else {
+			sb.WriteString(fmt.Sprintf("    Connected to node%d: false", k))
+		}
+	}
+	sb.WriteString("\n]\n")
+
+	return sb.String()
 }

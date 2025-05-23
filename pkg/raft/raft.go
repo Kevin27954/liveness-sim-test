@@ -3,6 +3,8 @@ package raft
 import (
 	"fmt"
 	"log"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Kevin27954/liveness-sim-test/db"
@@ -37,6 +39,7 @@ type Raft struct {
 
 	eventCh         chan any // We only want specific types (structs); will be filtered.
 	heartBeatTicker *time.Ticker
+	close           bool
 
 	task        task.TaskManager
 	Db          db.DB
@@ -81,6 +84,11 @@ func (r *Raft) Run() {
 	defer r.heartBeatTicker.Stop()
 
 	for {
+		if r.close {
+			log.Println(r.name, "I am running r.close")
+			break
+		}
+
 		// Time of every 3 seconds
 		select {
 		case event := <-r.eventCh:
@@ -89,8 +97,6 @@ func (r *Raft) Run() {
 				r.handleEvent(event.(p.MessageEvent))
 			case p.TickerEvent:
 				log.Println("I should not run")
-				// r.heartBeatTicker.Reset(10 * time.Second)
-				// r.handleTicker(event.(p.TickerEvent))
 			default:
 				log.Println("Unknown Type")
 			}
@@ -109,12 +115,9 @@ func (r *Raft) InitiateElection() {
 	r.hasVoted = true
 	r.term += 1
 
-	// TODO: Look into whether or not I need to pass anything in with this
 	taskId := r.task.AddTask(p.ELECTION)
 
-	// r.transponder.Write(fmt.Appendf([]byte(""), "%s%s%d%s%d%s%d", p.ELECTION, SEPERATOR, r.id, SEPERATOR, taskId, SEPERATOR, r.term))
 	msg := r.transponder.CreateMsg(p.ELECTION, r.id, taskId, r.term)
-	log.Println(r.name, "Created:", msg)
 	r.transponder.Write(msg)
 }
 
@@ -124,14 +127,14 @@ func (r *Raft) startHeartBeat(id int) {
 
 	for {
 		if !r.isLeader {
-			log.Println("I ws not the leader")
+			log.Println("I was not the leader")
 			return
 		}
 
 		select {
 		case <-heartBeatTicker.C:
-			// r.transponder.WriteTo(id, fmt.Appendf([]byte(""), "%s%s%d", p.APPEND_ENTRIES, SEPERATOR, r.id))
 			r.transponder.WriteTo(id, r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id))
+			r.task.SetMaxNodes(r.transponder.GetTotalConns())
 
 		}
 	}
@@ -153,8 +156,35 @@ func (r *Raft) SendNewOp(operation string, msg string) {
 
 	taskId := r.task.AddTask("")
 
-	// r.transponder.Write(fmt.Appendf([]byte(""), "%s%s%d%s%d%s%s", p.APPEND_ENTRIES, SEPERATOR, r.id, SEPERATOR, taskId, SEPERATOR, operation+SEPERATOR+msg))
 	r.transponder.Write(r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id, taskId, operation, msg))
+}
+
+func (r *Raft) GetState(w http.ResponseWriter, req *http.Request) {
+	var sb strings.Builder
+
+	sb.WriteString("Raft State:\n")
+	sb.WriteString(fmt.Sprintf("  Name: %s\n", r.name))
+	sb.WriteString(fmt.Sprintf("  ID: %d\n", r.id))
+	sb.WriteString(fmt.Sprintf("  Term: %d\n", r.term))
+	sb.WriteString(fmt.Sprintf("  IsLeader: %t\n", r.isLeader))
+	sb.WriteString(fmt.Sprintf("  HasVoted: %t\n", r.hasVoted))
+
+	sb.WriteString("  SyncMap Keys: [")
+	first := true
+	for k := range r.syncMap {
+		if !first {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%d", k))
+		first = false
+	}
+	sb.WriteString("]\n")
+
+	sb.WriteString(fmt.Sprintf("  TaskManager: %s\n", r.task.String()))
+	// sb.WriteString(fmt.Sprintf("  DB: %T\n", r.Db))
+	sb.WriteString(fmt.Sprintf("  Transponder: %s\n", r.transponder.String()))
+
+	fmt.Fprintf(w, sb.String())
 }
 
 func (r *Raft) newTimerEveryMin(wait int) *time.Ticker {
@@ -167,6 +197,7 @@ func (r *Raft) AddConn(conn *websocket.Conn, id int) {
 	r.transponder.AddConn(conn, id)
 }
 
-func (r *Raft) Info() string {
-	return fmt.Sprint(r.isLeader, " - ", r.term)
+func (r *Raft) Quit() bool {
+	r.close = true
+	return r.close
 }

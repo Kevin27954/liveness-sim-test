@@ -147,10 +147,8 @@ func (r *Raft) handleSyncReqAsk(from int, data string) {
 	}
 
 	if has {
-		// r.transponder.WriteTo(from, fmt.Appendf([]byte(""), "%s%s%d", p.SYNC_REQ_HAS, SEPERATOR, r.id))
 		r.transponder.WriteTo(from, r.transponder.CreateMsg(p.SYNC_REQ_HAS, r.id))
 	} else {
-		// r.transponder.WriteTo(from, fmt.Appendf([]byte(""), "%s%s%d", p.SYNC_REQ_NO_HAS, SEPERATOR, r.id))
 		r.transponder.WriteTo(from, r.transponder.CreateMsg(p.SYNC_REQ_NO_HAS, r.id))
 	}
 }
