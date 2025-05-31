@@ -7,6 +7,8 @@ import (
 	p "github.com/Kevin27954/liveness-sim-test/pkg"
 )
 
+const SEPERATOR = "≡" // A Hambuger menu looking thing
+
 type Task struct {
 	msg    p.MessageEvent
 	taskId int
@@ -15,6 +17,7 @@ type Task struct {
 
 type TaskManager struct {
 	taskQueue    map[int]int //taskId - votes
+	taskInfo     map[int]string
 	taskComplete int
 	taskStarted  int
 	totalNodes   int
@@ -23,12 +26,27 @@ type TaskManager struct {
 func Init() TaskManager {
 	return TaskManager{
 		taskQueue:    make(map[int]int),
+		taskInfo:     make(map[int]string),
 		taskComplete: 0,
 		taskStarted:  1,
 	}
 }
 
-func (t *TaskManager) AddTask(event string) int {
+func (t *TaskManager) NumTask() int {
+	return len(t.taskQueue)
+}
+
+func (t *TaskManager) GetQueuedMsg() []string {
+	var msgs []string
+
+	for key := range t.taskQueue {
+		msgs = append(msgs, t.taskInfo[key])
+	}
+
+	return msgs
+}
+
+func (t *TaskManager) AddTask(event string, msg string) int {
 	if event == p.ELECTION {
 		t.taskQueue[1] = 0
 		return 1
@@ -36,6 +54,7 @@ func (t *TaskManager) AddTask(event string) int {
 
 	t.taskStarted += 1
 	t.taskQueue[t.taskStarted] = 0
+	t.taskInfo[t.taskStarted] = event + SEPERATOR + msg
 	return t.taskStarted
 }
 
@@ -50,6 +69,7 @@ func (t *TaskManager) VoteOnTask(taskId int, vote bool) bool {
 	if t.taskQueue[taskId] > t.totalNodes/2 {
 		t.taskComplete += 1
 		delete(t.taskQueue, taskId)
+		delete(t.taskInfo, taskId)
 		return true
 	}
 

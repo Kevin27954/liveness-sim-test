@@ -110,7 +110,7 @@ func (n *Node) recieveMessage() {
 			if err != nil {
 				log.Println(err)
 			}
-			break
+			// break
 		} else {
 			assert.NoError(err, "Unable to read message")
 		}

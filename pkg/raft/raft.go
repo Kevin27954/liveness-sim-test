@@ -115,7 +115,7 @@ func (r *Raft) InitiateElection() {
 	r.hasVoted = true
 	r.term += 1
 
-	taskId := r.task.AddTask(p.ELECTION)
+	taskId := r.task.AddTask(p.ELECTION, "")
 
 	msg := r.transponder.CreateMsg(p.ELECTION, r.id, taskId, r.term)
 	r.transponder.Write(msg)
@@ -143,7 +143,15 @@ func (r *Raft) startHeartBeat(id int) {
 func (r *Raft) SendNewOp(operation string, msg string) {
 	log.Println(r.name, " Value of isleader is: ", r.isLeader)
 	if !r.isLeader {
-		r.transponder.Write(r.transponder.CreateMsg(p.NEW_OP, r.id, operation, msg))
+		if r.hasVoted {
+			// If a new term started and leader is elected, send to leader
+			r.transponder.Write(r.transponder.CreateMsg(p.NEW_OP, r.id, operation, msg))
+		} else {
+			// store in task manager, send when they finished voting.
+			// TODO Store the operatin and msg in this.
+			r.task.AddTask(operation, msg)
+		}
+
 		return
 	}
 
@@ -154,7 +162,7 @@ func (r *Raft) SendNewOp(operation string, msg string) {
 		log.Println("Unable to add operation: ", err)
 	}
 
-	taskId := r.task.AddTask("")
+	taskId := r.task.AddTask(operation, msg)
 
 	r.transponder.Write(r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id, taskId, operation, msg))
 }

@@ -71,9 +71,8 @@ func (r *Raft) handleNewOp(_ int, data string) {
 		log.Println("Unable to add operation: ", err)
 	}
 
-	taskId := r.task.AddTask("")
+	taskId := r.task.AddTask(operation, msg)
 
-	// r.transponder.Write(fmt.Appendf([]byte(""), "%s%s%d%s%d%s%s", p.APPEND_ENTRIES, SEPERATOR, r.id, SEPERATOR, taskId, SEPERATOR, data))
 	r.transponder.Write(r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id, taskId, data))
 }
 
@@ -174,13 +173,26 @@ func (r *Raft) handleSyncReqInit(from int, _ string) {
 		return
 	}
 
-	r.transponder.WriteTo(from, r.transponder.CreateMsg(p.SYNC_REQ_ASK, r.id, nextLog.String()))
+	r.transponder.WriteTo(from, r.transponder.CreateMsg(p.NEW_OP, p.SYNC_REQ_ASK, r.id, nextLog.String()))
 }
 
 func (r *Raft) handleAppendEntries(from int, data string) {
 	// If it is empty then it is heartbeat
 	if len(data) == 0 {
 		r.heartBeatTicker.Reset(10 * time.Second)
+
+		if r.task.NumTask() > 0 {
+			// Send the data that was receieved over to leader.
+			msgs := r.task.GetQueuedMsg()
+
+			// create the msg and send it over.
+			// Honestly I don't feel like changing thingstoo much now. I'll just take this.
+			for _, msg := range msgs {
+				r.transponder.WriteTo(from, r.transponder.CreateMsg(p.NEW_OP, msg))
+			}
+
+		}
+
 		return
 	}
 
@@ -197,6 +209,9 @@ func (r *Raft) handleAppendEntries(from int, data string) {
 	r.transponder.WriteTo(from, r.transponder.CreateMsg(p.VOTE_YES, r.id, taskId))
 
 	// Else I want to append data upon receiving messages and data
+
+	// I want to send any messages that were nto able to be send before
+	// because there wasn't a leader elected yet.
 }
 
 func (r *Raft) handleVoteYes(from int, data string) {
