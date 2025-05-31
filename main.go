@@ -14,6 +14,13 @@ import (
 )
 
 func main() {
+	args := os.Args[1:]
+	isTest := args[0]
+
+	if isTest != "" {
+		idk_test()
+		return
+	}
 
 	// protocol := "ws://"
 	// domain := "localhost"
