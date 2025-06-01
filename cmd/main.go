@@ -47,6 +47,9 @@ func main() {
 	http.HandleFunc("/get/logs", serverNode.GetLogs)
 	http.HandleFunc("/gets", serverNode.GetMessages)
 	http.HandleFunc("/raft", raftState.GetState)
+	http.HandleFunc("/leader", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, raftState.IsLeader())
+	})
 
 	http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
 		serverNode.Close()

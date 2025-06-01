@@ -1,7 +1,10 @@
 package simtest
 
 import (
+	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	cli "github.com/Kevin27954/liveness-sim-test/test/client"
 	rand "github.com/Kevin27954/liveness-sim-test/test/randomizer"
@@ -9,19 +12,23 @@ import (
 )
 
 // Maximum running at a single time
-const INSTANCES = 3
+const INSTANCES = 2
 
 // Gonna need a way to init the total messages and disconnections, since that is the 2
 // core things about RAFT: logs and election.
 
 type SimTest struct {
 	server     srv.Server
-	client     cli.Client
+	client     []cli.Client
 	randomizer rand.Randomizer
 }
 
-func Init(server srv.Server, client cli.Client, randomizer rand.Randomizer) SimTest {
-	s := SimTest{server: server, client: client, randomizer: randomizer}
+func Init(server srv.Server, randomizer rand.Randomizer) SimTest {
+	s := SimTest{server: server, client: make([]cli.Client, 0), randomizer: randomizer}
+
+	for range s.server.NumNodes {
+		s.client = append(s.client, cli.Init(randomizer))
+	}
 
 	return s
 }
@@ -32,10 +39,33 @@ func (s *SimTest) StartServer() {
 
 // This is just one instance. We plan on running multiple of these.
 func (s *SimTest) StartTest() {
-	log.Println(s.randomizer.GetInt15())
 	_ = s.randomizer.GetInt15()
 
-	urls := s.server.Start()
+	s.server.Start()
+
+	time.Sleep(2 * time.Second)
+
+	var l sync.Mutex
+
+	for i, port := range s.server.GetPorts() {
+		connUrl := fmt.Sprintf("ws://localhost:%s/ws", port)
+		s.client[i].Connect(connUrl)
+		go func(l *sync.Mutex) {
+			msgs := s.randomizer.GetInt7()
+			log.Println(msgs)
+			s.client[i].Start(msgs)
+			l.Lock()
+			if len(s.client) == 1 {
+				s.client = nil
+			} else {
+				s.client[i] = s.client[len(s.client)-1]
+				s.client = s.client[:len(s.client)-1]
+			}
+			l.Unlock()
+		}(&l)
+	}
+
+	time.Sleep(5 * time.Second)
 
 	// Some coniditon I will think of later:
 	// Ideas:
@@ -43,7 +73,18 @@ func (s *SimTest) StartTest() {
 	// for a time limit, e.g. 2-3 minute max.
 	// for a random time.
 	for {
+		// TODO: Work on timing out multiple servers too
+
 		s.TimeoutRandomServer()
+		time.Sleep(25 * time.Second)
+		if s.server.NumLeaders() > 1 {
+			log.Fatal("There was more than 1 leader")
+			break
+		}
+
+		if s.client == nil {
+			break
+		}
 	}
 
 	// CLIENT IDEA:
@@ -69,11 +110,15 @@ func (s *SimTest) StartTest() {
 	//		- this also test the election process for the server
 	// - The clients is just gonna be sending messages only.
 	//		- this test the log replication and state consistent perhaps?
+
+	log.Println("Finished Test, Result: Pass")
 }
 
 func (s *SimTest) TimeoutRandomServer() {
-	nodeNum := s.randomizer.GetIntN(s.server.NumNodes) + 8000
+	nodeNum := s.randomizer.GetIntN(s.server.NumNodes) + s.server.StartingPort
 	s.server.CloseServer(nodeNum)
-	// A wait time here.
+	log.Println("Timing out node:", nodeNum)
+	// 10 ~ 20 seconds before reconnecting
+	time.Sleep(time.Duration(s.randomizer.GetIntN(10)+10) + time.Second)
 	s.server.Rejoin(nodeNum)
 }

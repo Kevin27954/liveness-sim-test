@@ -3,55 +3,55 @@ package server
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
 type Server struct {
-	startingPort int
+	StartingPort int
 	NumNodes     int
 }
 
 func Init(startingPort int, numNodes int) Server {
 	s := Server{
-		startingPort: startingPort,
+		StartingPort: startingPort,
 		NumNodes:     numNodes,
 	}
 
 	return s
 }
 
-func (s *Server) Start() []string {
-	var urlList []string
-
+func (s *Server) Start() {
 	for i := range s.NumNodes {
+		var urlList []string
 		for j := i + 1; j < s.NumNodes; j++ {
-			url := string(s.startingPort + j)
+			url := strconv.Itoa(s.StartingPort + j)
 			urlList = append(urlList, url)
 		}
 
 		connList := strings.Join(urlList, ",")
 		fmt.Println(connList)
 
-		go s.startServer(s.startingPort+i, connList)
+		go s.startServer(s.StartingPort+i, connList)
 	}
-
-	return urlList
 }
 
 // port is the port of the node that left.
 func (s *Server) Rejoin(port int) {
 	var urlList []string
-	for j := 0; j < s.NumNodes; j++ {
-		if j != port%s.startingPort {
-			url := string(s.startingPort + j)
+	for j := range s.NumNodes {
+		if j != port%s.StartingPort {
+			url := strconv.Itoa(s.StartingPort + j)
 			urlList = append(urlList, url)
 		}
 	}
 
 	connList := strings.Join(urlList, ",")
-	fmt.Println(connList)
+	fmt.Println("REJOIN:", connList)
 
 	go s.startServer(port, connList)
 }
@@ -67,7 +67,7 @@ func (s *Server) CloseServer(port int) {
 func (s *Server) startServer(port int, connList string) {
 	color := port
 
-	startNodeCmd := exec.Command("go", "run", "cmd/main.go", string(port), connList)
+	startNodeCmd := exec.Command("go", "run", "cmd/main.go", strconv.Itoa(port), connList)
 	fmt.Println("Ran: ", startNodeCmd.Args)
 
 	logPipe, err := startNodeCmd.StdoutPipe()
@@ -99,4 +99,40 @@ func (s *Server) startServer(port int, connList string) {
 		log.Printf("\033[%dm%s\033[0m", color+31, text)
 	}
 
+}
+
+func (s *Server) GetPorts() []string {
+	var urlList []string
+
+	for i := range s.NumNodes {
+		url := strconv.Itoa(s.StartingPort + i)
+		urlList = append(urlList, url)
+
+		fmt.Println(urlList)
+	}
+
+	return urlList
+}
+
+func (s *Server) NumLeaders() int {
+	numLeader := 0
+
+	for i := range s.NumNodes {
+		url := fmt.Sprintf("http://localhost:%d/leader", s.StartingPort+i)
+		res, err := http.Get(url)
+		if err != nil {
+			log.Println("Unable to get response")
+			continue
+		}
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			log.Println("Unable to read body")
+			continue
+		}
+		if string(body) == "true" {
+			numLeader += 1
+		}
+	}
+
+	return numLeader
 }

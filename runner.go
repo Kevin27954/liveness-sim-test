@@ -2,7 +2,7 @@ package main
 
 import (
 	test "github.com/Kevin27954/liveness-sim-test/test"
-	cli "github.com/Kevin27954/liveness-sim-test/test/client"
+	// cli "github.com/Kevin27954/liveness-sim-test/test/client"
 	rand "github.com/Kevin27954/liveness-sim-test/test/randomizer"
 	srv "github.com/Kevin27954/liveness-sim-test/test/server"
 )
@@ -48,13 +48,9 @@ the logs must be equal to leader during lost
 */
 
 func idk_test() {
-	server := srv.Init(9000, 4)
-	client := cli.Init()
 	randomizer := rand.Init(69)
-	simTest := test.Init(server, client, randomizer)
+	server := srv.Init(8000, 3)
+	simTest := test.Init(server, randomizer)
 
-	simTest.StartTest()
-	simTest.StartTest()
-	simTest.StartTest()
 	simTest.StartTest()
 }

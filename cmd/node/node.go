@@ -118,7 +118,7 @@ func (n *Node) recieveMessage() {
 		assert.Assert(len(message) <= 512, len(message), 512, "greater than 512 bytes")
 
 		n.Raft.SendNewOp(pkg.NEW_MSG_ADD, string(message))
-		log.Printf("Recieved: %s", message)
+		// log.Printf("Recieved: %s", message)
 	}
 
 }

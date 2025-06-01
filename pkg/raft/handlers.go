@@ -215,7 +215,7 @@ func (r *Raft) handleAppendEntries(from int, data string) {
 }
 
 func (r *Raft) handleVoteYes(from int, data string) {
-	log.Println(from, " voted yes")
+	// log.Println(from, " voted yes")
 
 	taskId, err := strconv.Atoi(data)
 	if err != nil {
@@ -232,7 +232,7 @@ func (r *Raft) handleVoteYes(from int, data string) {
 }
 
 func (r *Raft) handleVoteNo(from int, data string) {
-	log.Println(from, " voted yes")
+	// log.Println(from, " voted no")
 
 	taskId, err := strconv.Atoi(data)
 	if err != nil {

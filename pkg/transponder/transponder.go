@@ -43,7 +43,7 @@ func (t *Transponder) StartConns(portList string) {
 
 		conn, _, err := websocket.DefaultDialer.Dial(connStr, nil)
 		if err != nil {
-			log.Fatal("WTF: ", connStr, "err:", err)
+			log.Println("Unable to Connect to conn:", err)
 		}
 
 		log.Printf("Connected to %s", connStr)
@@ -53,10 +53,15 @@ func (t *Transponder) StartConns(portList string) {
 
 func (t *Transponder) listen(conn *websocket.Conn) {
 	for {
-		// Closes upon having other program closing also.
 		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			log.Fatal(t.from, "Unable to read message: ", err)
+		if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) {
+			log.Println(t.from, "Unable to read message: ", err)
+			for i, internalConn := range t.connList {
+				if internalConn == conn {
+					t.connList[i] = nil
+				}
+			}
+			break
 		}
 
 		t.onRecv(p.Init(string(msg)))
@@ -79,19 +84,24 @@ func (t *Transponder) Write(msg []byte) {
 }
 
 // The ID is known ahead of time (last digit of port number)
-func (t *Transponder) WriteTo(id int, msg []byte) {
+func (t *Transponder) WriteTo(id int, msg []byte) error {
 	if id > len(t.connList) {
 		log.Fatal("id was out of bounds")
 	}
 
 	conn := t.connList[id]
-	conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
-	err := conn.WriteMessage(websocket.TextMessage, msg)
-	if err != nil {
-		log.Println("From: ", t.from, "Error", err)
-		return
+	if conn == nil {
+		log.Println("I was nil")
+		return nil
 	}
 
+	err := conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
+	err = conn.WriteMessage(websocket.TextMessage, msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (t *Transponder) OnRecv(action func(message any)) {

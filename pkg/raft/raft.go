@@ -133,7 +133,11 @@ func (r *Raft) startHeartBeat(id int) {
 
 		select {
 		case <-heartBeatTicker.C:
-			r.transponder.WriteTo(id, r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id))
+			err := r.transponder.WriteTo(id, r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id))
+			if err != nil {
+				log.Println("From: ", r.id, "Error", err)
+				return
+			}
 			r.task.SetMaxNodes(r.transponder.GetTotalConns())
 
 		}
@@ -141,7 +145,7 @@ func (r *Raft) startHeartBeat(id int) {
 }
 
 func (r *Raft) SendNewOp(operation string, msg string) {
-	log.Println(r.name, " Value of isleader is: ", r.isLeader)
+	// log.Println(r.name, " Value of isleader is: ", r.isLeader)
 	if !r.isLeader {
 		if r.hasVoted {
 			// If a new term started and leader is elected, send to leader
@@ -154,8 +158,6 @@ func (r *Raft) SendNewOp(operation string, msg string) {
 
 		return
 	}
-
-	log.Println(r.name, "I tested and ran successfully")
 
 	err := r.Db.AddOperation(operation, r.term, msg)
 	if err != nil {
@@ -203,6 +205,10 @@ func (r *Raft) newTimerEveryMin(wait int) *time.Ticker {
 
 func (r *Raft) AddConn(conn *websocket.Conn, id int) {
 	r.transponder.AddConn(conn, id)
+}
+
+func (r *Raft) IsLeader() bool {
+	return r.isLeader
 }
 
 func (r *Raft) Quit() bool {
