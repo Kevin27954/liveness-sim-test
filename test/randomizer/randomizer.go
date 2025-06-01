@@ -18,6 +18,10 @@ func Init(seed int64) Randomizer {
 	return r
 }
 
+func (r *Randomizer) GetIntN(n int) int {
+	return int(r.randGen.Intn(n))
+}
+
 // From 0 -> 127
 func (r *Randomizer) GetInt7() int {
 	return int(r.randGen.Intn(127))

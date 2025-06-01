@@ -10,22 +10,23 @@ import (
 
 type Server struct {
 	startingPort int
-	numNodes     int
+	NumNodes     int
 }
 
 func Init(startingPort int, numNodes int) Server {
 	s := Server{
 		startingPort: startingPort,
-		numNodes:     numNodes,
+		NumNodes:     numNodes,
 	}
 
 	return s
 }
 
-func (s *Server) Start() {
-	for i := range s.numNodes {
-		var urlList []string
-		for j := i + 1; j < s.numNodes; j++ {
+func (s *Server) Start() []string {
+	var urlList []string
+
+	for i := range s.NumNodes {
+		for j := i + 1; j < s.NumNodes; j++ {
 			url := string(s.startingPort + j)
 			urlList = append(urlList, url)
 		}
@@ -35,12 +36,14 @@ func (s *Server) Start() {
 
 		go s.startServer(s.startingPort+i, connList)
 	}
+
+	return urlList
 }
 
 // port is the port of the node that left.
 func (s *Server) Rejoin(port int) {
 	var urlList []string
-	for j := 0; j < s.numNodes; j++ {
+	for j := 0; j < s.NumNodes; j++ {
 		if j != port%s.startingPort {
 			url := string(s.startingPort + j)
 			urlList = append(urlList, url)

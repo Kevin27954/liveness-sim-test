@@ -181,7 +181,7 @@ func (r *Raft) handleAppendEntries(from int, data string) {
 	if len(data) == 0 {
 		r.heartBeatTicker.Reset(10 * time.Second)
 
-		if r.task.NumTask() > 0 {
+		if r.task.NumMsg() > 0 {
 			// Send the data that was receieved over to leader.
 			msgs := r.task.GetQueuedMsg()
 

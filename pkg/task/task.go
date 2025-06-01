@@ -32,8 +32,8 @@ func Init() TaskManager {
 	}
 }
 
-func (t *TaskManager) NumTask() int {
-	return len(t.taskQueue)
+func (t *TaskManager) NumMsg() int {
+	return len(t.taskInfo)
 }
 
 func (t *TaskManager) GetQueuedMsg() []string {
@@ -43,6 +43,8 @@ func (t *TaskManager) GetQueuedMsg() []string {
 		msgs = append(msgs, t.taskInfo[key])
 	}
 
+	// Making sure there is nothing left
+	clear(t.taskInfo)
 	return msgs
 }
 
