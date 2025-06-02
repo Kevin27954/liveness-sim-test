@@ -1,8 +1,10 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"syscall"
 	"time"
 
 	rand "github.com/Kevin27954/liveness-sim-test/test/randomizer"
@@ -38,34 +40,36 @@ func (c *Client) Start(numMsg int) {
 	log.Println("Finished Sending Messages to ", c.connUrl)
 }
 
-func (c *Client) Connect(connUrl string) {
+func (c *Client) Connect(connUrl string) *websocket.Conn {
 	c.connUrl = connUrl
 
 	conn, _, err := websocket.DefaultDialer.Dial(connUrl, nil)
 	if err != nil {
 		log.Println("Unable to connect to :", connUrl, " err:", err)
+		return nil
 	}
 
 	c.conn = conn
+	return conn
 }
 
 func (c *Client) WriteMsg(msg string) {
-	if c.conn == nil {
-		log.Fatal("Connection is nil")
-	}
 
 	c.conn.SetWriteDeadline(time.Now().Add(WRITE_WAIT * time.Second))
 	err := c.conn.WriteMessage(websocket.TextMessage, []byte(msg))
 	if err != nil {
-		if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) {
+		if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) || errors.Is(err, syscall.EPIPE) {
 			// Attempt reconnect
 			for {
 				time.Sleep(5 * time.Second)
 				log.Println("Attemping to Reconnect Client...")
-				c.Connect(c.connUrl)
+				if c.Connect(c.connUrl) != nil {
+					break
+				}
 			}
 		} else {
 			// log.Println("Unable to write message: ", msg, "\n", "err: ", err)
+			log.Printf("\033[%dm%s\033[0m", 200+31, err)
 		}
 	}
 }

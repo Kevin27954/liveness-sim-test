@@ -41,6 +41,8 @@ type Raft struct {
 	heartBeatTicker *time.Ticker
 	close           bool
 
+	closeChan chan int
+
 	task        task.TaskManager
 	Db          db.DB
 	transponder transponder.Transponder
@@ -84,11 +86,6 @@ func (r *Raft) Run() {
 	defer r.heartBeatTicker.Stop()
 
 	for {
-		if r.close {
-			log.Println(r.name, "I am running r.close")
-			break
-		}
-
 		// Time of every 3 seconds
 		select {
 		case event := <-r.eventCh:
@@ -104,6 +101,8 @@ func (r *Raft) Run() {
 			if !r.isLeader {
 				r.InitiateElection()
 			}
+		case <-r.closeChan:
+			return
 
 		}
 	}
@@ -212,6 +211,9 @@ func (r *Raft) IsLeader() bool {
 }
 
 func (r *Raft) Quit() bool {
-	r.close = true
-	return r.close
+	go func() {
+		r.closeChan <- 1
+		log.Println("Idk did I run?")
+	}()
+	return true
 }

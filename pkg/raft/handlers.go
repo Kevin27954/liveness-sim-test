@@ -188,7 +188,7 @@ func (r *Raft) handleAppendEntries(from int, data string) {
 			// create the msg and send it over.
 			// Honestly I don't feel like changing thingstoo much now. I'll just take this.
 			for _, msg := range msgs {
-				r.transponder.WriteTo(from, r.transponder.CreateMsg(p.NEW_OP, msg))
+				r.transponder.WriteTo(from, r.transponder.CreateMsg(p.NEW_OP, r.id, msg))
 			}
 
 		}

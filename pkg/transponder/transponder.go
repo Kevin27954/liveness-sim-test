@@ -53,6 +53,10 @@ func (t *Transponder) StartConns(portList string) {
 
 func (t *Transponder) listen(conn *websocket.Conn) {
 	for {
+		if conn == nil {
+			log.Println(t.from, "it was NILLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL")
+			break
+		}
 		_, msg, err := conn.ReadMessage()
 		if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) {
 			log.Println(t.from, "Unable to read message: ", err)
@@ -62,6 +66,9 @@ func (t *Transponder) listen(conn *websocket.Conn) {
 				}
 			}
 			break
+		} else if err != nil {
+			log.Println("VERY IMPORTANT MESSAGE HEREREE EEE err:", err)
+			continue
 		}
 
 		t.onRecv(p.Init(string(msg)))
@@ -92,7 +99,7 @@ func (t *Transponder) WriteTo(id int, msg []byte) error {
 	conn := t.connList[id]
 	if conn == nil {
 		log.Println("I was nil")
-		return nil
+		return fmt.Errorf("Conn is nil, It was shut downed")
 	}
 
 	err := conn.SetWriteDeadline(time.Now().Add(WRITEWAIT))
