@@ -211,6 +211,7 @@ func (r *Raft) IsLeader() bool {
 }
 
 func (r *Raft) Quit() bool {
+	r.Db.Close()
 	go func() {
 		r.closeChan <- 1
 		log.Println("Idk did I run?")

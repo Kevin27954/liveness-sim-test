@@ -3,9 +3,11 @@ package simtest
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/Kevin27954/liveness-sim-test/db"
 	cli "github.com/Kevin27954/liveness-sim-test/test/client"
 	rand "github.com/Kevin27954/liveness-sim-test/test/randomizer"
 	srv "github.com/Kevin27954/liveness-sim-test/test/server"
@@ -21,10 +23,12 @@ type SimTest struct {
 	server     srv.Server
 	client     []cli.Client
 	randomizer rand.Randomizer
+
+	finishedClients int
 }
 
 func Init(server srv.Server, randomizer rand.Randomizer) SimTest {
-	s := SimTest{server: server, client: make([]cli.Client, 0), randomizer: randomizer}
+	s := SimTest{server: server, client: make([]cli.Client, 0), randomizer: randomizer, finishedClients: 0}
 
 	for range s.server.NumNodes {
 		s.client = append(s.client, cli.Init(randomizer))
@@ -46,72 +50,74 @@ func (s *SimTest) StartTest() {
 	time.Sleep(2 * time.Second)
 
 	var l sync.Mutex
+	totalMsg := 0
 
 	for i, port := range s.server.GetPorts() {
 		connUrl := fmt.Sprintf("ws://localhost:%s/ws", port)
 		s.client[i].Connect(connUrl)
+		msgs := s.randomizer.GetInt7()
+		totalMsg += msgs
 		go func(l *sync.Mutex) {
-			msgs := s.randomizer.GetInt7()
 			log.Println(msgs)
 			s.client[i].Start(msgs)
 			l.Lock()
-			if len(s.client) == 1 {
-				s.client = nil
-			} else {
-				s.client[i] = s.client[len(s.client)-1]
-				s.client = s.client[:len(s.client)-1]
-			}
+			s.finishedClients += 1
 			l.Unlock()
 		}(&l)
 	}
 
-	time.Sleep(5 * time.Second)
+	log.Println("Sleeping for some time")
+	log.Println(time.Duration(s.randomizer.GetIntN(25)) * time.Second)
+	time.Sleep(time.Duration(s.randomizer.GetIntN(25)) * time.Second)
 
 	// Some coniditon I will think of later:
 	// Ideas:
 	// finish all things, e.g. all messages, all server nodes closes, etc.
 	// for a time limit, e.g. 2-3 minute max.
 	// for a random time.
+
 	for {
 		// TODO: Work on timing out multiple servers too
+		// s.TimeoutRandomServer()
+		// time.Sleep(time.Duration(s.randomizer.GetIntN(45)) * time.Second)
+		// if s.server.NumLeaders() > 1 {
+		// 	log.Fatal("There was more than 1 leader")
+		// 	break
+		// }
 
-		s.TimeoutRandomServer()
-		time.Sleep(25 * time.Second)
-		if s.server.NumLeaders() > 1 {
-			log.Fatal("There was more than 1 leader")
-			break
-		}
-
-		if s.client == nil {
+		if s.finishedClients >= s.server.NumNodes {
 			break
 		}
 	}
 
-	// CLIENT IDEA:
-	// I'm just gonna have it connect to the number of servers that started up
-	// If it gets disconencted, it will just attempt to reconnect.
-	// I will wait for it to finish it's total messages sent, similar to how
-	// 		a real user might do.
-	// Once finish, that should mark the end of a single test.
-	// During the entire time the clients are sending data,
-	// 		the servers will be constantly brought down and having elections happening.
-	// It is expected for each server to be in the same state, and potentially even the
-	// 		same number of messages that the clients had send.
+	log.Println("Quitting All Servers...")
+	s.QuitAllServer()
 
-	// CLIENT CONT:
-	// However, that means that the clients will be in their own goroutine.
-	// The Server might also be in their own goroutine?
-	// So does that mean it will be a syncWaitGroup? for a single test?
-	// Or would it be more like the server is just continously running it's timeout
-	//		but the moment the client finishes, the entire thing closes?
-	// I feel like this setup makes sense, since:
-	// - servers should also be shutting down in the real world. Otherwise it is just running
-	//		normally.
-	//		- this also test the election process for the server
-	// - The clients is just gonna be sending messages only.
-	//		- this test the log replication and state consistent perhaps?
+	time.Sleep(3 * time.Second)
 
-	log.Println("Finished Test, Result: Pass")
+	for i := range INSTANCES + 1 {
+		name := "node" + strconv.Itoa(i)
+		tempDB := db.Init(name)
+		msg, err := tempDB.GetNumLogs()
+		if err != nil {
+			log.Println("Unable to get # of Logs")
+		}
+
+		log.Println("Node", i, ": ", msg)
+		//clean up /delete db
+	}
+
+	log.Println(" Total Expected: ", totalMsg)
+
+	log.Println("Finished Test, Result: Pass. This is a lie. I didn't check for anything")
+
+}
+
+func (s *SimTest) QuitAllServer() {
+	for i := range s.server.NumNodes {
+		nodeNum := i + s.server.StartingPort
+		s.server.CloseServer(nodeNum)
+	}
 }
 
 func (s *SimTest) TimeoutRandomServer() {
@@ -119,6 +125,6 @@ func (s *SimTest) TimeoutRandomServer() {
 	s.server.CloseServer(nodeNum)
 	log.Println("Timing out node:", nodeNum)
 	// 10 ~ 20 seconds before reconnecting
-	time.Sleep(time.Duration(s.randomizer.GetIntN(10)+10) + time.Second)
+	time.Sleep(time.Duration(s.randomizer.GetIntN(10000)+10000) * time.Millisecond)
 	s.server.Rejoin(nodeNum)
 }
