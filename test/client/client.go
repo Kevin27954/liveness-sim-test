@@ -19,10 +19,12 @@ type Client struct {
 	connUrl    string
 	conn       *websocket.Conn
 	randomizer rand.Randomizer
+
+	reconnCounter int
 }
 
 func Init(rand rand.Randomizer) Client {
-	c := Client{randomizer: rand}
+	c := Client{randomizer: rand, reconnCounter: 0}
 
 	return c
 }
@@ -36,6 +38,11 @@ func (c *Client) Start(numMsg int) {
 		c.WriteMsg(fmt.Sprint(cpNumMsg - numMsg))
 		numMsg -= 1
 		time.Sleep(time.Duration(c.randomizer.GetIntN(1000)) * time.Millisecond)
+
+		if c.reconnCounter > 10 {
+			log.Println("Stopping Client")
+			return
+		}
 	}
 
 	log.Println("Finished Sending Messages to ", c.connUrl)
@@ -62,6 +69,7 @@ func (c *Client) WriteMsg(msg string) {
 		if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) || errors.Is(err, syscall.EPIPE) {
 			// Attempt reconnect
 			for {
+				c.reconnCounter += 1
 				time.Sleep(5 * time.Second)
 				log.Println("Attemping to Reconnect Client...")
 				if c.Connect(c.connUrl) != nil {
