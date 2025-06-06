@@ -67,7 +67,13 @@ func (s *Server) CloseServer(port int) {
 func (s *Server) startServer(port int, connList string) {
 	color := port
 
-	startNodeCmd := exec.Command("go", "run", "cmd/main.go", strconv.Itoa(port), connList)
+	// This can be docker instead.
+	// Ensure that the docker image is build before this.
+	// sudo docker run --rm liveness-sim
+
+	// startNodeCmd.Run() Would be better perhaps
+
+	startNodeCmd := exec.Command("go", "run", "cmd/main.go", "-a", strconv.Itoa(port), "-p", connList, "-n", strconv.Itoa(s.NumNodes))
 	fmt.Println("Ran: ", startNodeCmd.Args)
 
 	logPipe, err := startNodeCmd.StdoutPipe()
@@ -90,14 +96,18 @@ func (s *Server) startServer(port int, connList string) {
 	go func() {
 		for errScanner.Scan() {
 			text := errScanner.Text()
-			log.Printf("\033[%dm%s\033[0m", color+31, text)
+			fmt.Printf("\033[%dm%s\033[0m\n", color+31, text)
 
 		}
 	}()
 	for scanner.Scan() {
 		text := scanner.Text()
-		log.Printf("\033[%dm%s\033[0m", color+31, text)
+		fmt.Printf("\033[%dm%s\033[0m\n", color+31, text)
 	}
+
+	// err := startNodeCmd.Run()
+	// If error then keep the docker and print the logs.
+	// If no error then remove the docker container.
 
 }
 

@@ -15,29 +15,42 @@ import (
 
 func main() {
 	args := os.Args[1:]
-	if len(args) != 0 {
 
-		idk_test()
+	test := false
+	numNodes := 3
+	for i := range args {
 
+		switch args[i] {
+		case "-n":
+			num, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				log.Fatal("Exepected a number")
+			}
+			numNodes = num
+
+			i += 1
+		case "-t":
+			test = true
+		}
+
+	}
+
+	if test {
+		startTest(numNodes)
 		return
 	}
 
-	// protocol := "ws://"
-	// domain := "localhost"
-	// endpoint := "internal"
 	startingPort := 8000
 
-	numNodes := 3
 	var wg sync.WaitGroup
 
 	logFile, err := os.Create("logs.md")
 	assert.NoError(err, "Error creating log file")
 	var mutex sync.Mutex
 
-	for i := 0; i < numNodes; i++ {
+	for i := range numNodes {
 		var urlList []string
 		for j := i + 1; j < numNodes; j++ {
-			// url := fmt.Sprintf("%s%s:%d/%s", protocol, domain, startingPort+j, endpoint)
 			url := fmt.Sprintf("%d", startingPort+j)
 			urlList = append(urlList, url)
 		}
@@ -53,7 +66,7 @@ func main() {
 			color := i
 			strPort := strconv.Itoa(startingPort + i)
 
-			startNodeCmd := exec.Command("go", "run", "cmd/main.go", strPort, connList)
+			startNodeCmd := exec.Command("go", "run", "cmd/main.go", "-a", strPort, "-p", connList, "-n", strconv.Itoa(numNodes))
 			fmt.Println("Ran: ", startNodeCmd.Args)
 
 			logPipe, err := startNodeCmd.StdoutPipe()

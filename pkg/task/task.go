@@ -21,6 +21,7 @@ type TaskManager struct {
 	taskComplete int
 	taskStarted  int
 	totalNodes   int
+	queuedTask   []string
 }
 
 func Init() TaskManager {
@@ -29,23 +30,29 @@ func Init() TaskManager {
 		taskInfo:     make(map[int]string),
 		taskComplete: 0,
 		taskStarted:  1,
+		queuedTask:   make([]string, 0),
 	}
 }
 
 func (t *TaskManager) NumMsg() int {
-	return len(t.taskInfo)
+	return len(t.queuedTask)
 }
 
 func (t *TaskManager) GetQueuedMsg() []string {
 	var msgs []string
 
-	for key := range t.taskQueue {
-		msgs = append(msgs, t.taskInfo[key])
+	for _, msg := range t.queuedTask {
+		msgs = append(msgs, msg)
 	}
 
 	// Making sure there is nothing left
-	clear(t.taskInfo)
+	t.queuedTask = []string{}
+
 	return msgs
+}
+
+func (t *TaskManager) AddQueueTask(event string, msg string) {
+	t.queuedTask = append(t.queuedTask, event+SEPERATOR+msg)
 }
 
 func (t *TaskManager) AddTask(event string, msg string) int {

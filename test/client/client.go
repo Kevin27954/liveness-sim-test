@@ -32,7 +32,8 @@ func (c *Client) Start(numMsg int) {
 	cpNumMsg := numMsg
 
 	for numMsg > 0 {
-		c.WriteMsg(fmt.Sprint("Msg #", cpNumMsg-numMsg, " - From Client to ", c.connUrl))
+		// c.WriteMsg(fmt.Sprint("Msg #", cpNumMsg-numMsg, " - From Client to ", c.connUrl))
+		c.WriteMsg(fmt.Sprint(cpNumMsg - numMsg))
 		numMsg -= 1
 		time.Sleep(time.Duration(c.randomizer.GetIntN(1000)) * time.Millisecond)
 	}

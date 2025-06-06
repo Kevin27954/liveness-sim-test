@@ -54,7 +54,7 @@ func (t *Transponder) StartConns(portList string) {
 func (t *Transponder) listen(conn *websocket.Conn) {
 	for {
 		if conn == nil {
-			log.Println(t.from, "it was NILLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL")
+			log.Println("Connection was nil")
 			break
 		}
 		_, msg, err := conn.ReadMessage()
@@ -67,7 +67,7 @@ func (t *Transponder) listen(conn *websocket.Conn) {
 			}
 			break
 		} else if err != nil {
-			log.Println("VERY IMPORTANT MESSAGE HEREREE EEE err:", err)
+			log.Println("Error, websocket close: ", err)
 			continue
 		}
 

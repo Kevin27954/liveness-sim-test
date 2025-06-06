@@ -114,7 +114,6 @@ func (r *Raft) handleSyncRes(from int, _ string) {
 		if err != nil {
 			log.Println(r.name, "Unable to get Log")
 		}
-		// r.transponder.WriteTo(from, fmt.Appendf([]byte(""), "%s%s%d%s%s", p.SYNC_REQ_ASK, SEPERATOR, r.id, SEPERATOR, nextLog.String()))
 		r.transponder.WriteTo(from, r.transponder.CreateMsg(p.SYNC_REQ_ASK, r.id, nextLog.String()))
 	} else {
 		opsArr, err := r.Db.GetLogsById(cpy.High)
@@ -122,7 +121,6 @@ func (r *Raft) handleSyncRes(from int, _ string) {
 			log.Println(r.name, "Unable to get Log")
 		}
 
-		// msg := fmt.Appendf([]byte(""), "%s%s%d%s", p.SYNC_REQ_COMMIT, SEPERATOR, r.id, SEPERATOR)
 		msg := r.transponder.CreateMsg(p.SYNC_REQ_COMMIT, r.id, SEPERATOR)
 		for _, ops := range opsArr {
 			msg = fmt.Appendf(msg, "%s%s", ops, SEPERATOR)
@@ -185,8 +183,11 @@ func (r *Raft) handleAppendEntries(from int, data string) {
 			// Send the data that was receieved over to leader.
 			msgs := r.task.GetQueuedMsg()
 
+			// log.Println(msgs)
+
 			// create the msg and send it over.
 			// Honestly I don't feel like changing thingstoo much now. I'll just take this.
+
 			for _, msg := range msgs {
 				r.transponder.WriteTo(from, r.transponder.CreateMsg(p.NEW_OP, r.id, msg))
 			}
@@ -225,7 +226,6 @@ func (r *Raft) handleVoteYes(from int, data string) {
 	if r.task.VoteOnTask(taskId, true) {
 		if taskId == 1 {
 			r.isLeader = true
-			log.Println(r.name, "I ran: isleader:", r.isLeader)
 			go r.startHeartBeat(from)
 		}
 	}
@@ -242,7 +242,6 @@ func (r *Raft) handleVoteNo(from int, data string) {
 	if r.task.VoteOnTask(taskId, false) {
 		if taskId == 1 {
 			r.isLeader = true
-			log.Println(r.name, "I ran: isleader:", r.isLeader)
 			go r.startHeartBeat(from) // needs a new way to start heartbeat
 		}
 	}
@@ -265,8 +264,6 @@ func (r *Raft) handleElection(from int, data string) {
 		r.hasVoted = false
 		r.term = newTerm
 	}
-
-	log.Println(r.name, " handleElection:", r.isLeader)
 
 	if !r.hasVoted && !r.isLeader {
 		r.transponder.WriteTo(from, r.transponder.CreateMsg(p.VOTE_YES, r.id, taskId))

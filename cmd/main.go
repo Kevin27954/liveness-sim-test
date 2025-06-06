@@ -21,14 +21,30 @@ func main() {
 	rand.New(rand.NewSource(69))
 
 	args := os.Args[1:]
-	addr := args[0]
 
+	var addr string
 	var portList string
-	if len(args) > 1 {
-		portList = args[1]
-	}
+	numNodes := 3
+	for i := range args {
 
-	size := 3 // Change this to either recieve from args or dynamically figure it out
+		switch args[i] {
+		case "-n":
+			num, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				log.Fatal("Exepected a number")
+			}
+			numNodes = num
+
+			i += 1
+		case "-a":
+			addr = args[i+1]
+			i += 1
+		case "-p":
+			portList = args[i+1]
+			i += 1
+
+		}
+	}
 
 	addrAsInt, err := strconv.Atoi(addr)
 	assert.NoError(err, "Unable to covert to int")
@@ -37,7 +53,7 @@ func main() {
 
 	// Init all things
 	sqlDb := db.Init(name)
-	raftState := r.Init(name, id, sqlDb, portList, size)
+	raftState := r.Init(name, id, sqlDb, portList, numNodes)
 	serverNode := node.Node{Conn: nil, Status: 0, Raft: raftState}
 
 	srv := &http.Server{Addr: ":" + addr}

@@ -22,6 +22,10 @@ func (r *Randomizer) GetIntN(n int) int {
 	return int(r.randGen.Intn(n))
 }
 
+func (r *Randomizer) GetIntRange(min int, max int) int {
+	return min + int(r.randGen.Intn(max-min))
+}
+
 // From 0 -> 127
 func (r *Randomizer) GetInt7() int {
 	return int(r.randGen.Intn(127))

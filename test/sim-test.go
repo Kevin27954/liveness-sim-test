@@ -14,7 +14,6 @@ import (
 )
 
 // Maximum running at a single time
-const INSTANCES = 2
 
 // Gonna need a way to init the total messages and disconnections, since that is the 2
 // core things about RAFT: logs and election.
@@ -25,10 +24,11 @@ type SimTest struct {
 	randomizer rand.Randomizer
 
 	finishedClients int
+	numNodes        int
 }
 
-func Init(server srv.Server, randomizer rand.Randomizer) SimTest {
-	s := SimTest{server: server, client: make([]cli.Client, 0), randomizer: randomizer, finishedClients: 0}
+func Init(server srv.Server, randomizer rand.Randomizer, numNodes int) SimTest {
+	s := SimTest{server: server, client: make([]cli.Client, 0), randomizer: randomizer, finishedClients: 0, numNodes: numNodes}
 
 	for range s.server.NumNodes {
 		s.client = append(s.client, cli.Init(randomizer))
@@ -47,7 +47,7 @@ func (s *SimTest) StartTest() {
 
 	s.server.Start()
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	var l sync.Mutex
 	totalMsg := 0
@@ -78,12 +78,13 @@ func (s *SimTest) StartTest() {
 
 	for {
 		// TODO: Work on timing out multiple servers too
-		// s.TimeoutRandomServer()
-		// time.Sleep(time.Duration(s.randomizer.GetIntN(45)) * time.Second)
-		// if s.server.NumLeaders() > 1 {
-		// 	log.Fatal("There was more than 1 leader")
-		// 	break
-		// }
+
+		s.TimeoutRandomServer()
+		time.Sleep(time.Duration(s.randomizer.GetIntN(45)) * time.Second)
+		if s.server.NumLeaders() > 1 {
+			log.Fatal("There was more than 1 leader")
+			break
+		}
 
 		if s.finishedClients >= s.server.NumNodes {
 			break
@@ -95,7 +96,7 @@ func (s *SimTest) StartTest() {
 
 	time.Sleep(3 * time.Second)
 
-	for i := range INSTANCES + 1 {
+	for i := range s.numNodes + 1 {
 		name := "node" + strconv.Itoa(i)
 		tempDB := db.Init(name)
 		msg, err := tempDB.GetNumLogs()
@@ -103,13 +104,22 @@ func (s *SimTest) StartTest() {
 			log.Println("Unable to get # of Logs")
 		}
 
-		log.Println("Node", i, ": ", msg)
+		log.Println("Total Got: ", msg, " --- Total Expected: ", totalMsg)
+		if msg != totalMsg {
+			log.Println("Total messages not the same")
+		}
+
+		// logs, err := tempDB.GetLogs()
+		// for _, alog := range logs {
+		// 	log.Printf("\033[%dm%s\033[0m", i+31, alog.Data)
+		// }
+
 		//clean up /delete db
 	}
 
 	log.Println(" Total Expected: ", totalMsg)
 
-	log.Println("Finished Test, Result: Pass. This is a lie. I didn't check for anything")
+	log.Println("Finished Test, Result: Pass.")
 
 }
 

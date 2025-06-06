@@ -11,6 +11,7 @@ import (
 	p "github.com/Kevin27954/liveness-sim-test/pkg"
 	task "github.com/Kevin27954/liveness-sim-test/pkg/task"
 	"github.com/Kevin27954/liveness-sim-test/pkg/transponder"
+	"github.com/Kevin27954/liveness-sim-test/test/randomizer"
 	"github.com/gorilla/websocket"
 )
 
@@ -49,6 +50,7 @@ type Raft struct {
 }
 
 func Init(name string, id int, db db.DB, portList string, size int) *Raft {
+
 	r := Raft{
 		name: name,
 		id:   id,
@@ -78,11 +80,8 @@ func Init(name string, id int, db db.DB, portList string, size int) *Raft {
 func (r *Raft) Run() {
 	defer r.Db.Close()
 
-	var totalWait int
-	for range r.id {
-		totalWait = totalWait + WAIT_TIME
-	}
-	r.heartBeatTicker = r.newTimerEveryMin(totalWait)
+	r.heartBeatTicker = r.newTimerEveryMin(WAIT_TIME)
+	// r.heartBeatTicker = r.newTimerEveryMin(totalWait)
 	defer r.heartBeatTicker.Stop()
 
 	for {
@@ -124,6 +123,14 @@ func (r *Raft) InitiateElection() {
 func (r *Raft) startHeartBeat(id int) {
 	heartBeatTicker := time.NewTicker(3 * time.Second)
 
+	if r.task.NumMsg() > 0 {
+		msgs := r.task.GetQueuedMsg()
+		for _, msg := range msgs {
+			// r.transponder.WriteTo(id, r.transponder.CreateMsg(p.APPEND_ENTRIES, r.id, msg))
+			r.handleNewOp(id, msg)
+		}
+	}
+
 	for {
 		if !r.isLeader {
 			log.Println("I was not the leader")
@@ -152,7 +159,7 @@ func (r *Raft) SendNewOp(operation string, msg string) {
 		} else {
 			// store in task manager, send when they finished voting.
 			// TODO Store the operatin and msg in this.
-			r.task.AddTask(operation, msg)
+			r.task.AddQueueTask(operation, msg)
 		}
 
 		return
@@ -199,7 +206,15 @@ func (r *Raft) GetState(w http.ResponseWriter, req *http.Request) {
 func (r *Raft) newTimerEveryMin(wait int) *time.Ticker {
 	time.Sleep(time.Duration(wait) * time.Second)
 
-	return time.NewTicker(10 * time.Second)
+	myRand := randomizer.Init(420)
+	for range r.id {
+		myRand.GetIntN(11)
+	}
+
+	electionWait := myRand.GetIntRange(5000, 12345)
+	log.Println(electionWait)
+	timeout := time.Duration(electionWait) * time.Millisecond
+	return time.NewTicker(timeout)
 }
 
 func (r *Raft) AddConn(conn *websocket.Conn, id int) {

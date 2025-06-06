@@ -117,9 +117,9 @@ func (db *DB) GetLogs() ([]p.Operation, error) {
 
 	assert.NoError(rows.Err(), "Error iterating message rows")
 
-	for _, op := range operations {
-		log.Println("OP:", op)
-	}
+	// for _, op := range operations {
+	// 	log.Println("OP:", op)
+	// }
 
 	return operations, nil
 }

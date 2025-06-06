@@ -13,15 +13,22 @@ The randomness are determined thorugh a seed for easier replication.
 *Strike through means fixed*
 
 - ~Ungraceful exit of servers~
-- Fautly Leader Elections 
+- ~Fautly Leader Elections~
 - ~Missing Information, Leading to Error Parsing~
-- Faultly Concurrency when writing to each other.
+- ~Incorrect handling of messages before election~
+- Occasional concurrency error to websocket
+- Reconnected nodes does not SYNC
 
 ### Running this Projecet.
 
 To run this project, simply have **Golang** installed, and in the terminal, type:
-`go run . test` to run the simulation test for 1 instance
-`go run .` to run the program itself.
+
+`go run . -n N -t` to run the simulation test for 1 instance
+N is the number of instances of nodes you want to start up
+
+`go run . -n N` to run the program
+N is the number of instances of nodes you want to start up
+
 
 ### Outcome
 
