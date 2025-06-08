@@ -49,9 +49,10 @@ The main goal was to learn about **Simulation Testing**, but I also managed to l
 Next is Simulation Testing. There wasn't anything too complicated about it other than planning and understanding what it is I was testing. In this project, the core thing I wanted tested was also the core principals of **RAFT**. However, I believe the code I wrote to accomplish the test is subpar. The fact that a single test can only be done through a command and multiple test is only possible by running that same command in the cli multiple times is **TERRIBlE**.
 I think the thing that I dislike is the reliance on using `os.Exec` to start up the servers. I could have probably coded it such that the servers started without using CLI and same for the clients. This could have been done by allowing the `Server` and `Client` struct to receive a few extra args if needed or shove all the logic into a `Server.Start(args)`/`Client.Start(args)` func - aka **encapsulation**. Although the other thing I was concern aboout was the use of SQL file and the need to clean it up as well as ports, probably would have been able to be done with `Docker` and it's SDK rather than using the CLI, which is cleaner.
 
----
-So for this part, **Note to self**: `os.Exec` should be a last resort for running something. It's a pain in the rectum. Try to just give it the args in the code itself, like pass it to the `struct` itself or through a function call - though in my project, it owuld just be to the `struct` itself. Encapsulate the logic and make it available to be used everywhere. The `main.go` can just be a CLI parser or `env` reader that later runs the server and everything else. This way I can have a test file also that can do the same thing, but for test only.
----
+> So for this part, **Note to self**: `os.Exec` should be a last resort for running something. It's a pain in the rectum. Try to just give it the args in the code itself, like pass it to the `struct` itself or through a function call - though in my project, it owuld just be to the `struct` itself. Encapsulate the logic and make it available to be used everywhere. The `main.go` can just be a CLI parser or `env` reader that later runs the server and everything else. This way I can have a test file also that can do the same thing, but for test only.
 
 Logging is pretty important. Having a structed logging system and color coordination made reading a lot easier. In the future of my projects, I think I might want some pre determined templates or a way of logging that I always implement and use. It should make debugging and other things much easier and more fun to look at, rather than just black and white symbols.
+
+
+
 
