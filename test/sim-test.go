@@ -87,6 +87,10 @@ func (s *SimTest) StartTest() {
 		}
 
 		if s.finishedClients >= s.server.NumNodes {
+			// I alos need to makesure that the items are all pushed to the DB, if it hasn't already
+			// We can just wait? that dumb but it works.
+
+			time.Sleep(10 * time.Second)
 			break
 		}
 	}

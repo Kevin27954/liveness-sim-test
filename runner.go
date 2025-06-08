@@ -1,6 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"log"
+	"os/exec"
+	"sync"
+
 	test "github.com/Kevin27954/liveness-sim-test/test"
 	rand "github.com/Kevin27954/liveness-sim-test/test/randomizer"
 	srv "github.com/Kevin27954/liveness-sim-test/test/server"
